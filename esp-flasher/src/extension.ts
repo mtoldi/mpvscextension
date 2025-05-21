@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
+import { SerialPort } from 'serialport';
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -13,19 +14,28 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 class EspFlasherViewProvider implements vscode.WebviewViewProvider {
+  private _view?: vscode.WebviewView;
+
   constructor(private readonly context: vscode.ExtensionContext) {}
 
-  resolveWebviewView(webviewView: vscode.WebviewView): void {
+  async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+    this._view = webviewView;
+
     webviewView.webview.options = {
       enableScripts: true,
     };
 
     webviewView.webview.html = this.getHtml();
 
+    // Send available COM ports to frontend
+    const ports = await SerialPort.list();
+    webviewView.webview.postMessage({
+      command: 'populatePorts',
+      ports: ports.map(p => p.path),
+    });
+
     webviewView.webview.onDidReceiveMessage(async (message) => {
       const { port, board } = message;
-
-      console.log('Received message:', message);
 
       if (!port) {
         vscode.window.showErrorMessage('COM port is required.');
@@ -132,41 +142,125 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
     return `
       <!DOCTYPE html>
       <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <style>
+          body {
+            font-family: var(--vscode-font-family);
+            font-size: 13px;
+            padding: 12px;
+            background-color: var(--vscode-sideBar-background);
+            color: var(--vscode-foreground);
+          }
+
+          h3 {
+            margin-top: 0;
+            font-size: 16px;
+            color: var(--vscode-sideBarTitle-foreground);
+          }
+
+          form, .section {
+            margin-bottom: 24px;
+          }
+
+          label {
+            display: block;
+            margin-bottom: 6px;
+          }
+
+          input, select {
+            width: 100%;
+            padding: 6px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+            border: 1px solid var(--vscode-input-border);
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+          }
+
+          button {
+            display: block;
+            width: 100%;
+            padding: 10px 0;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            background-color: #5e2ca5;
+            color: white;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+          }
+
+          button:hover {
+            background-color: #7a3fc9;
+          }
+
+          hr {
+            margin: 24px 0;
+            border: none;
+            border-top: 1px solid var(--vscode-editorGroup-border);
+          }
+        </style>
+      </head>
       <body>
         <h3>ESP MicroPython Flasher</h3>
-        
-        <!-- Firmware flashing form -->
-        <form id="firmwareForm">
-          <label>COM Port: <input type="text" id="port" required /></label><br/>
-          <label>Board: 
+
+        <div class="section">
+          <form id="firmwareForm">
+            <label for="port">COM Port</label>
+            <select id="port"></select>
+            
+            <label for="board">Board</label>
             <select id="board">
               <option value="esp32">ESP32</option>
               <option value="esp8266">ESP8266</option>
             </select>
-          </label><br/>
-          <button type="submit">Select .bin file & Flash</button>
-        </form>
-  
-        <hr />
-  
-        <!-- Python file upload form -->
-        <form id="pythonForm">
-          <label>COM Port: <input type="text" id="portPy" required /></label><br/>
-          <button type="submit">Upload Current Python File as main.py</button>
-        </form>
 
-        <button id="runBtn">Run main.py</button>
-  
+            <button type="submit">Flash Firmware (.bin)</button>
+          </form>
+        </div>
+
+        <hr />
+
+        <div class="section">
+          <form id="pythonForm">
+            <label for="portPy">COM Port</label>
+            <select id="portPy"></select>
+
+            <button type="submit">Upload Active Python File as main.py</button>
+          </form>
+
+          <button id="runBtn">Run main.py</button>
+        </div>
+
         <script>
           const vscode = acquireVsCodeApi();
-  
+
+          window.addEventListener('message', (event) => {
+            const message = event.data;
+            if (message.command === 'populatePorts') {
+              const portSelects = [document.getElementById('port'), document.getElementById('portPy')];
+              portSelects.forEach(select => {
+                select.innerHTML = '';
+                message.ports.forEach(port => {
+                  const option = document.createElement('option');
+                  option.value = port;
+                  option.textContent = port;
+                  select.appendChild(option);
+                });
+              });
+            }
+          });
+
           document.getElementById('firmwareForm').addEventListener('submit', (e) => {
             e.preventDefault();
             const port = document.getElementById('port').value;
             const board = document.getElementById('board').value;
             vscode.postMessage({ command: 'flashFirmware', port, board });
           });
-  
+
           document.getElementById('pythonForm').addEventListener('submit', (e) => {
             e.preventDefault();
             const port = document.getElementById('portPy').value;
@@ -176,7 +270,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
           document.getElementById('runBtn').addEventListener('click', () => {
             const port = document.getElementById('portPy').value;
             if (!port) {
-              alert('Please enter the COM Port before running.');
+              alert('Please select the COM Port before running.');
               return;
             }
             vscode.postMessage({ command: 'runPython', port });
