@@ -37,7 +37,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (message) => {
       const { port, board } = message;
 
-      if (!port) {
+      if (!port && message.command !== 'flashFirmware') {
         vscode.window.showErrorMessage('COM port is required.');
         return;
       }
@@ -79,75 +79,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
               });
             })
         );
-      }
-      else if (message.command === 'listFiles') {
-        const listCmd = `mpremote connect ${message.port} exec "import os; print(os.listdir())"`;
-
-        exec(listCmd, (err, stdout, stderr) => {
-          if (err) {
-            vscode.window.showErrorMessage(`Failed to list files: ${stderr || err.message}`);
-            return;
-          }
-        
-          // Clean up output to parse list
-          try {
-            const match = stdout.match(/\[.*?\]/s);
-            const files = match ? JSON.parse(match[0].replace(/'/g, '"')) : [];
-            this._view?.webview.postMessage({ command: 'displayFiles', files });
-          } catch (e) {
-            vscode.window.showErrorMessage('Failed to parse file list.');
-          }
-        });
-      }
-      else if (message.command === 'runPythonFile') {
-        const { port, filename } = message;
-            
-        if (!port || !filename) {
-          vscode.window.showErrorMessage('Port and filename are required to run a Python file.');
-          return;
-        }
-      
-        // Use mpremote to run the specified file on the device
-        const runCmd = `mpremote connect ${port} exec "import ${filename.replace('.py', '')}"`;
-      
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Running ${filename}...`,
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(runCmd, (runError, runStdout, runStderr) => {
-                console.log(`Run ${filename} STDOUT:`, runStdout);
-                console.log(`Run ${filename} STDERR:`, runStderr);
-              
-                if (runError) {
-                  vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
-                  reject(runError);
-                } else {
-                  vscode.window.showInformationMessage(`${filename} ran successfully!`);
-                  resolve();
-                }
-              });
-            })
-        );
-      }
-
-
-      else if (message.command === 'deleteFile') {
-        const delCmd = `mpremote connect ${message.port} exec "import os; os.remove('${message.filename}')"`; 
-      
-        exec(delCmd, (err, stdout, stderr) => {
-          if (err) {
-            vscode.window.showErrorMessage(`Failed to delete file: ${stderr || err.message}`);
-          } else {
-            vscode.window.showInformationMessage(`Deleted ${message.filename} successfully.`);
-            // Re-fetch file list
-            this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
-          }
-        });
-      }  
+      } 
       else if (message.command === 'uploadPython') {
         const activeEditor = vscode.window.activeTextEditor;
         if (!activeEditor || activeEditor.document.languageId !== 'python') {
@@ -179,32 +111,74 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
             })
         );
       } 
-       else if (message.command === 'runPython') {
-        const runCmd = `mpremote connect ${port} exec "import main"`;
+      else if (message.command === 'listFiles') {
+        const listCmd = `mpremote connect ${port} exec "import os; print(os.listdir())"`;
+
+        exec(listCmd, (err, stdout, stderr) => {
+          if (err) {
+            vscode.window.showErrorMessage(`Failed to list files: ${stderr || err.message}`);
+            return;
+          }
+        
+          // Clean up output to parse list
+          try {
+            const match = stdout.match(/\[.*?\]/s);
+            const files = match ? JSON.parse(match[0].replace(/'/g, '"')) : [];
+            this._view?.webview.postMessage({ command: 'displayFiles', files });
+          } catch (e) {
+            vscode.window.showErrorMessage('Failed to parse file list.');
+          }
+        });
+      }
+      else if (message.command === 'runPythonFile') {
+        const { filename } = message;
+
+        if (!filename) {
+          vscode.window.showErrorMessage('Filename is required to run the script.');
+          return;
+        }
+        
+        // Remove .py extension if present
+        const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
+
+        const runCmd = `mpremote connect ${port} exec "import ${moduleName}"`;
 
         vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
-            title: 'Running main.py...',
+            title: `Running ${filename}...`,
             cancellable: false,
           },
           () =>
             new Promise<void>((resolve, reject) => {
               exec(runCmd, (runError, runStdout, runStderr) => {
-                console.log('Run STDOUT:', runStdout);
-                console.log('Run STDERR:', runStderr);
+                console.log(`Run ${filename} STDOUT:`, runStdout);
+                console.log(`Run ${filename} STDERR:`, runStderr);
 
                 if (runError) {
                   vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
                   reject(runError);
                 } else {
-                  vscode.window.showInformationMessage('Python script ran successfully!');
+                  vscode.window.showInformationMessage(`${filename} ran successfully!`);
                   resolve();
                 }
               });
             })
         );
-      } 
+      }
+      else if (message.command === 'deleteFile') {
+        const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;
+
+        exec(delCmd, (err, stdout, stderr) => {
+          if (err) {
+            vscode.window.showErrorMessage(`Failed to delete file: ${stderr || err.message}`);
+          } else {
+            vscode.window.showInformationMessage(`Deleted ${message.filename} successfully.`);
+            // Re-fetch file list
+            this._view?.webview.postMessage({ command: 'triggerListFiles', port });
+          }
+        });
+      }  
     });
   }
 
@@ -272,13 +246,24 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       border: none;
       border-top: 1px solid var(--vscode-editorGroup-border);
     }
+
+    .buttons-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .buttons-row button {
+      flex: 1;
+      margin-top: 0;
+    }
   </style>
 </head>
 <body>
   <h3>ESP MicroPython Flasher</h3>
 
   <div class="section">
-    <h4>FLash Firmware</h4>
+    <h4>Flash Firmware</h4>
     <form id="firmwareForm">
       <label for="port">COM Port</label>
       <select id="port"></select>
@@ -296,34 +281,25 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
   <hr />
 
   <div class="section">
-    <h4>Upload & Run Python Script</h4>
-    <form id="pythonForm">
-      <label for="portPy">COM Port</label>
-      <select id="portPy"></select>
+    <h4>Upload & Manage Python Scripts</h4>
 
-      <button type="submit">Upload Active Python File as main.py</button>
-    </form>
+    <label for="portDevice">COM Port</label>
+    <select id="portDevice"></select>
 
-    <button id="runBtn">Run main.py</button>
-  </div>
+    <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
 
-  <hr />
-
-  <div class="section">
-    <h4>Device File Manager</h4>
-    <label for="portFile">COM Port</label>
-    <select id="portFile"></select>
-
-    <div style="display: flex; gap: 10px;">
+    <div class="buttons-row">
       <button id="listFilesBtn">List Files</button>
-      <button id="refreshBtn">Refresh</button>
+      <button id="refreshBtn">Refresh Files</button>
     </div>
 
     <label for="fileSelect">Files on Device</label>
-    <select id="fileSelect"></select>
+    <select id="fileSelect" size="6" style="width: 100%;"></select>
 
-    <button id="deleteFileBtn">Delete Selected File</button>
-    <button id="runI2CBtn">Run i2cscanner.py</button>
+    <div class="buttons-row">
+      <button id="runFileBtn">Run Selected File</button>
+      <button id="deleteFileBtn">Delete Selected File</button>
+    </div>
   </div>
 
   <script>
@@ -333,7 +309,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       const message = event.data;
 
       if (message.command === 'populatePorts') {
-        ['port', 'portPy', 'portFile'].forEach(id => {
+        ['port', 'portDevice'].forEach(id => {
           const select = document.getElementById(id);
           select.innerHTML = '';
           message.ports.forEach(port => {
@@ -361,6 +337,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       }
     });
 
+    // Firmware flash form
     document.getElementById('firmwareForm').addEventListener('submit', (e) => {
       e.preventDefault();
       const port = document.getElementById('port').value;
@@ -368,29 +345,44 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ command: 'flashFirmware', port, board });
     });
 
-    document.getElementById('pythonForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const port = document.getElementById('portPy').value;
+    // Upload Python file
+    document.getElementById('uploadPythonBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
+      if (!port) {
+        alert('Please select the COM Port before uploading.');
+        return;
+      }
       vscode.postMessage({ command: 'uploadPython', port });
     });
 
-    document.getElementById('runBtn').addEventListener('click', () => {
-      const port = document.getElementById('portPy').value;
+    // List files
+    document.getElementById('listFilesBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
       if (!port) {
-        alert('Please select the COM Port before running.');
+        alert('Please select the COM Port before listing files.');
         return;
       }
-      vscode.postMessage({ command: 'runPython', port });
-    });
-
-    document.getElementById('listFilesBtn').addEventListener('click', () => {
-      const port = document.getElementById('portFile').value;
       vscode.postMessage({ command: 'listFiles', port });
     });
-      
+
+    // Refresh files (same as list)
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
+      if (!port) {
+        alert('Please select the COM Port before refreshing files.');
+        return;
+      }
+      vscode.postMessage({ command: 'listFiles', port });
+    });
+
+    // Delete selected file
     document.getElementById('deleteFileBtn').addEventListener('click', () => {
-      const port = document.getElementById('portFile').value;
+      const port = document.getElementById('portDevice').value;
       const filename = document.getElementById('fileSelect').value;
+      if (!port) {
+        alert('Please select the COM Port before deleting a file.');
+        return;
+      }
       if (!filename) {
         alert('No file selected to delete.');
         return;
@@ -398,24 +390,23 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ command: 'deleteFile', port, filename });
     });
 
-    document.getElementById('refreshBtn').addEventListener('click', () => {
-      const port = document.getElementById('portFile').value;
-      vscode.postMessage({ command: 'listFiles', port });
-    });
-
-    document.getElementById('runI2CBtn').addEventListener('click', () => {
-      const port = document.getElementById('portPy').value;
+    // Run selected file
+    document.getElementById('runFileBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
+      const filename = document.getElementById('fileSelect').value;
       if (!port) {
-        alert('Please select the COM Port before running.');
+        alert('Please select the COM Port before running a file.');
         return;
       }
-      vscode.postMessage({ command: 'runPythonFile', port, filename: 'i2cscanner.py' });
+      if (!filename) {
+        alert('No file selected to run.');
+        return;
+      }
+      vscode.postMessage({ command: 'runPythonFile', port, filename });
     });
-
   </script>
 </body>
 </html>
-
     `;
   }
 }
