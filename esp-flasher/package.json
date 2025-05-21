@@ -1,0 +1,49 @@
+{
+  "name": "esp-flasher",
+  "displayName": "ESP MicroPython Flasher",
+  "description": "Flash MicroPython firmware to ESP boards using esptool.py",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "main": "./dist/extension.js",
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./"
+  },
+  "activationEvents": [
+        
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "espFlasher.flash",
+        "title": "Flash ESP MicroPython Firmware"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "espFlasherView",
+          "title": "ESP Flasher",
+          "icon": "resources/mp.png"
+        }
+      ]
+    },
+    "views": {
+      "espFlasherView": [
+        {
+          "type": "webview",
+          "id": "espFlasherWebview",
+          "name": "Flash Firmware",
+          "icon": "resources/mp.png"
+        }
+      ]
+    }
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.100.0"
+  }
+
+}
