@@ -1,6 +1,6 @@
 {
   "name": "esp-flasher",
-  "displayName": "ESP MicroPython Flasher",
+  "displayName": "Soldered MicroPython Helper",
   "description": "Flash MicroPython firmware to ESP boards using esptool.py",
   "version": "0.0.1",
   "engines": {
@@ -26,7 +26,7 @@
       "activitybar": [
         {
           "id": "espFlasherView",
-          "title": "ESP Flasher",
+          "title": "Soldered MicroPython Helper",
           "icon": "resources/mp2.png"
         }
       ]
@@ -36,7 +36,7 @@
         {
           "type": "webview",
           "id": "espFlasherWebview",
-          "name": "Flash Firmware",
+          "name": "",
           "icon": "resources/mp.png"
         }
       ]

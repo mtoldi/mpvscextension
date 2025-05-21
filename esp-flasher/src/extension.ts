@@ -260,23 +260,6 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
   </style>
 </head>
 <body>
-  <h3>ESP MicroPython Flasher</h3>
-
-  <div class="section">
-    <h4>Flash Firmware</h4>
-    <form id="firmwareForm">
-      <label for="port">COM Port</label>
-      <select id="port"></select>
-      
-      <label for="board">Board</label>
-      <select id="board">
-        <option value="esp32">ESP32</option>
-        <option value="esp8266">ESP8266</option>
-      </select>
-
-      <button type="submit">Flash Firmware (.bin)</button>
-    </form>
-  </div>
 
   <hr />
 
@@ -300,6 +283,22 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       <button id="runFileBtn">Run Selected File</button>
       <button id="deleteFileBtn">Delete Selected File</button>
     </div>
+  </div>
+
+  <div class="section">
+    <h4>Flash Firmware</h4>
+    <form id="firmwareForm">
+      <label for="port">COM Port</label>
+      <select id="port"></select>
+      
+      <label for="board">Board</label>
+      <select id="board">
+        <option value="esp32">ESP32</option>
+        <option value="esp8266">ESP8266</option>
+      </select>
+
+      <button type="submit">Flash Firmware (.bin)</button>
+    </form>
   </div>
 
   <script>
