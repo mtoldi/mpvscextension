@@ -99,6 +99,41 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
           }
         });
       }
+      else if (message.command === 'runPythonFile') {
+        const { port, filename } = message;
+            
+        if (!port || !filename) {
+          vscode.window.showErrorMessage('Port and filename are required to run a Python file.');
+          return;
+        }
+      
+        // Use mpremote to run the specified file on the device
+        const runCmd = `mpremote connect ${port} exec "import ${filename.replace('.py', '')}"`;
+      
+        vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Running ${filename}...`,
+            cancellable: false,
+          },
+          () =>
+            new Promise<void>((resolve, reject) => {
+              exec(runCmd, (runError, runStdout, runStderr) => {
+                console.log(`Run ${filename} STDOUT:`, runStdout);
+                console.log(`Run ${filename} STDERR:`, runStderr);
+              
+                if (runError) {
+                  vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
+                  reject(runError);
+                } else {
+                  vscode.window.showInformationMessage(`${filename} ran successfully!`);
+                  resolve();
+                }
+              });
+            })
+        );
+      }
+
 
       else if (message.command === 'deleteFile') {
         const delCmd = `mpremote connect ${message.port} exec "import os; os.remove('${message.filename}')"`; 
@@ -288,6 +323,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
     <select id="fileSelect"></select>
 
     <button id="deleteFileBtn">Delete Selected File</button>
+    <button id="runI2CBtn">Run i2cscanner.py</button>
   </div>
 
   <script>
@@ -366,6 +402,16 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       const port = document.getElementById('portFile').value;
       vscode.postMessage({ command: 'listFiles', port });
     });
+
+    document.getElementById('runI2CBtn').addEventListener('click', () => {
+      const port = document.getElementById('portPy').value;
+      if (!port) {
+        alert('Please select the COM Port before running.');
+        return;
+      }
+      vscode.postMessage({ command: 'runPythonFile', port, filename: 'i2cscanner.py' });
+    });
+
   </script>
 </body>
 </html>
