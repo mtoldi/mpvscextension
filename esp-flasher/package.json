@@ -16,10 +16,15 @@
   "contributes": {
     "commands": [
       {
-        "command": "espFlasher.flash",
-        "title": "Flash ESP MicroPython Firmware"
+        "command": "espFlasher.flashFirmware",
+        "title": "Flash Firmware (.bin)"
+      },
+      {
+        "command": "espFlasher.uploadPython",
+        "title": "Upload Python File"
       }
-    ],
+    ]
+,
     "viewsContainers": {
       "activitybar": [
         {
