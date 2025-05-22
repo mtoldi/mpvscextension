@@ -45,6 +45,7 @@ exports.deactivate = deactivate;
 class EspFlasherViewProvider {
     constructor(context) {
         this.context = context;
+        this.outputChannel = vscode.window.createOutputChannel("ESP Output");
     }
     resolveWebviewView(webviewView) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -110,6 +111,7 @@ class EspFlasherViewProvider {
                         cancellable: false,
                     }, () => new Promise((resolve, reject) => {
                         (0, child_process_1.exec)(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
+                            var _a;
                             if (uploadError) {
                                 vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
                                 reject(uploadError);
@@ -117,6 +119,7 @@ class EspFlasherViewProvider {
                             }
                             vscode.window.showInformationMessage('Python file uploaded successfully as main.py!');
                             resolve();
+                            (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({ command: 'triggerListFiles', port: message.port });
                         });
                     }));
                 }
@@ -139,6 +142,33 @@ class EspFlasherViewProvider {
                         }
                     });
                 }
+                else if (message.command === 'uploadPythonAsIs') {
+                    const activeEditor = vscode.window.activeTextEditor;
+                    if (!activeEditor || activeEditor.document.languageId !== 'python') {
+                        vscode.window.showErrorMessage('No active Python file to upload.');
+                        return;
+                    }
+                    const filePath = activeEditor.document.fileName;
+                    const fileName = filePath.split(/[/\\]/).pop(); // Extract filename only
+                    const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
+                    vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Uploading ${fileName} to device...`,
+                        cancellable: false,
+                    }, () => new Promise((resolve, reject) => {
+                        (0, child_process_1.exec)(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
+                            var _a;
+                            if (uploadError) {
+                                vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
+                                reject(uploadError);
+                                return;
+                            }
+                            vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+                            resolve();
+                            (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+                        });
+                    }));
+                }
                 else if (message.command === 'runPythonFile') {
                     const { filename } = message;
                     if (!filename) {
@@ -154,8 +184,12 @@ class EspFlasherViewProvider {
                         cancellable: false,
                     }, () => new Promise((resolve, reject) => {
                         (0, child_process_1.exec)(runCmd, (runError, runStdout, runStderr) => {
-                            console.log(`Run ${filename} STDOUT:`, runStdout);
-                            console.log(`Run ${filename} STDERR:`, runStderr);
+                            this.outputChannel.clear();
+                            this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
+                            this.outputChannel.appendLine(runStdout);
+                            if (runStderr)
+                                this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);
+                            this.outputChannel.show(true);
                             if (runError) {
                                 vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
                                 reject(runError);
@@ -272,6 +306,7 @@ class EspFlasherViewProvider {
     <select id="portDevice"></select>
 
     <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
+    <button id="uploadAsIsBtn">Upload Active Python File </button>
 
     <div class="buttons-row">
       <button id="listFilesBtn">List Files</button>
@@ -365,6 +400,17 @@ class EspFlasherViewProvider {
       }
       vscode.postMessage({ command: 'listFiles', port });
     });
+
+    // Upload Python file as-is
+    document.getElementById('uploadAsIsBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
+      if (!port) {
+        alert('Please select the COM Port before uploading.');
+        return;
+      }
+      vscode.postMessage({ command: 'uploadPythonAsIs', port });
+    });
+
 
     // Refresh files (same as list)
     document.getElementById('refreshBtn').addEventListener('click', () => {

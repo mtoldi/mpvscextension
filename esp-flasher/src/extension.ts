@@ -16,7 +16,11 @@ export function deactivate() {}
 class EspFlasherViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  private outputChannel = vscode.window.createOutputChannel("ESP Output");
+
+
+  constructor(private readonly context: vscode.ExtensionContext) {
+  }
 
   async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     this._view = webviewView;
@@ -107,6 +111,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
 
                 vscode.window.showInformationMessage('Python file uploaded successfully as main.py!');
                 resolve();
+                this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
               });
             })
         );
@@ -130,6 +135,42 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
           }
         });
       }
+
+      else if (message.command === 'uploadPythonAsIs') {
+        const activeEditor = vscode.window.activeTextEditor;
+        if (!activeEditor || activeEditor.document.languageId !== 'python') {
+          vscode.window.showErrorMessage('No active Python file to upload.');
+          return;
+        }
+      
+        const filePath = activeEditor.document.fileName;
+        const fileName = filePath.split(/[/\\]/).pop(); // Extract filename only
+        const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
+      
+        vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Uploading ${fileName} to device...`,
+            cancellable: false,
+          },
+          () =>
+            new Promise<void>((resolve, reject) => {
+              exec(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
+                if (uploadError) {
+                  vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
+                  reject(uploadError);
+                  return;
+                }
+              
+                vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+                resolve();
+                this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+
+              });
+            })
+        );
+      }
+
       else if (message.command === 'runPythonFile') {
         const { filename } = message;
 
@@ -152,8 +193,12 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
           () =>
             new Promise<void>((resolve, reject) => {
               exec(runCmd, (runError, runStdout, runStderr) => {
-                console.log(`Run ${filename} STDOUT:`, runStdout);
-                console.log(`Run ${filename} STDERR:`, runStderr);
+                  this.outputChannel.clear();
+                  this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
+                  this.outputChannel.appendLine(runStdout);
+                  if (runStderr) this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);
+                  this.outputChannel.show(true);
+
 
                 if (runError) {
                   vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
@@ -270,6 +315,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
     <select id="portDevice"></select>
 
     <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
+    <button id="uploadAsIsBtn">Upload Active Python File </button>
 
     <div class="buttons-row">
       <button id="listFilesBtn">List Files</button>
@@ -363,6 +409,17 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       }
       vscode.postMessage({ command: 'listFiles', port });
     });
+
+    // Upload Python file as-is
+    document.getElementById('uploadAsIsBtn').addEventListener('click', () => {
+      const port = document.getElementById('portDevice').value;
+      if (!port) {
+        alert('Please select the COM Port before uploading.');
+        return;
+      }
+      vscode.postMessage({ command: 'uploadPythonAsIs', port });
+    });
+
 
     // Refresh files (same as list)
     document.getElementById('refreshBtn').addEventListener('click', () => {
