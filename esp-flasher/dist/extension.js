@@ -60,6 +60,13 @@ class EspFlasherViewProvider {
                 command: 'populatePorts',
                 ports: ports.map(p => p.path),
             });
+            // ✅ Automatically trigger file listing for the first available port
+            if (ports.length > 0) {
+                webviewView.webview.postMessage({
+                    command: 'triggerListFiles',
+                    port: ports[0].path,
+                });
+            }
             webviewView.webview.onDidReceiveMessage((message) => __awaiter(this, void 0, void 0, function* () {
                 const { port, board } = message;
                 if (!port && message.command !== 'flashFirmware') {

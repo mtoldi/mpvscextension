@@ -38,6 +38,14 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
       ports: ports.map(p => p.path),
     });
 
+    // ✅ Automatically trigger file listing for the first available port
+    if (ports.length > 0) {
+      webviewView.webview.postMessage({
+        command: 'triggerListFiles',
+        port: ports[0].path,
+      });
+    }
+
     webviewView.webview.onDidReceiveMessage(async (message) => {
       const { port, board } = message;
 
