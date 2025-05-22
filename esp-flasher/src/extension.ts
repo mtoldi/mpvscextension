@@ -201,7 +201,7 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
           () =>
             new Promise<void>((resolve, reject) => {
               exec(runCmd, (runError, runStdout, runStderr) => {
-                  this.outputChannel.clear();
+                  // this.outputChannel.clear();
                   this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
                   this.outputChannel.appendLine(runStdout);
                   if (runStderr) this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);

@@ -191,7 +191,7 @@ class EspFlasherViewProvider {
                         cancellable: false,
                     }, () => new Promise((resolve, reject) => {
                         (0, child_process_1.exec)(runCmd, (runError, runStdout, runStderr) => {
-                            this.outputChannel.clear();
+                            // this.outputChannel.clear();
                             this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
                             this.outputChannel.appendLine(runStdout);
                             if (runStderr)
