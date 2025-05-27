@@ -70,6 +70,11 @@ pip install esptool mpremote
 
 # Install serialport npm package
 npm install serialport
+
+# For running the ext
+npm run vscode:prepublish 
+
+# To use open the src/extension.ts and run (f5) 
 ```
 
 After this setup, your VSCode extension should be able to use serial ports and run `esptool` and `mpremote` commands as intended.
