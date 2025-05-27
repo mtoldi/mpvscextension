@@ -70,15 +70,6 @@ pip install esptool mpremote
 
 # Install serialport npm package
 npm install serialport
-
-# Windows build tools (if on Windows)
-npm install --global --production windows-build-tools
-
-# macOS Xcode tools (if on macOS)
-xcode-select --install
-
-# Linux build essentials (if on Linux)
-sudo apt-get install build-essential python3-dev
 ```
 
 After this setup, your VSCode extension should be able to use serial ports and run `esptool` and `mpremote` commands as intended.
