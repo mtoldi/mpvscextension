@@ -270,6 +270,29 @@ class EspFlasherViewProvider {
                     }
                     yield this.handleFlashFromWeb(firmwareUrl, port);
                 }
+                else if (message.command === 'openFileFromDevice') {
+                    const { port, filename } = message;
+                    const tempDir = path.join(os.tmpdir(), 'esp-temp');
+                    const localPath = path.join(tempDir, filename);
+                    try {
+                        yield fs.promises.mkdir(tempDir, { recursive: true });
+                        const cmd = `mpremote connect ${port} fs cp :"${filename}" "${localPath}"`;
+                        this.outputChannel.appendLine(`📥 Downloading ${filename} from device...`);
+                        (0, child_process_1.exec)(cmd, (err, stdout, stderr) => __awaiter(this, void 0, void 0, function* () {
+                            if (err) {
+                                vscode.window.showErrorMessage(`Failed to download file: ${stderr || err.message}`);
+                                return;
+                            }
+                            const doc = yield vscode.workspace.openTextDocument(localPath);
+                            yield vscode.window.showTextDocument(doc, { preview: false });
+                            vscode.window.showInformationMessage(`Opened ${filename} from device.`);
+                        }));
+                    }
+                    catch (err) {
+                        const message = err instanceof Error ? err.message : String(err);
+                        vscode.window.showErrorMessage(`Failed to prepare file for editing: ${message}`);
+                    }
+                }
                 else if (message.command === 'uploadPythonAsIs') {
                     const activeEditor = vscode.window.activeTextEditor;
                     if (!activeEditor || activeEditor.document.languageId !== 'python') {
@@ -665,6 +688,19 @@ class EspFlasherViewProvider {
           if (!filename) return alert('No file selected to run.');
           vscode.postMessage({ command: 'runPythonFile', port, filename });
         });
+
+        document.getElementById('fileSelect').addEventListener('dblclick', () => {
+          const port = document.getElementById('port').value;
+          const filename = document.getElementById('fileSelect').value;
+        
+          if (!port || !filename) {
+            alert('Please select a COM port and a file to open.');
+            return;
+          }
+        
+          vscode.postMessage({ command: 'openFileFromDevice', port, filename });
+        });
+
 
         document.getElementById('uploadFromPcBtn').addEventListener('click', () => {
           const port = document.getElementById('port').value;
