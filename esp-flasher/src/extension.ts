@@ -368,6 +368,47 @@ private async downloadFile(url: string, dest: string): Promise<void> {
         });
       }
 
+      else if (message.command === 'uploadPythonFromPc') {
+        const fileUri = await vscode.window.showOpenDialog({
+          filters: { 'Python Files': ['py'] },
+          canSelectMany: false,
+        });
+      
+        if (!fileUri || fileUri.length === 0) {
+          vscode.window.showErrorMessage('No file selected.');
+          return;
+        }
+      
+        const filePath = fileUri[0].fsPath;
+        const fileName = path.basename(filePath);
+        const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
+      
+        vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `Uploading ${fileName} from PC...`,
+            cancellable: false,
+          },
+          () =>
+            new Promise<void>((resolve, reject) => {
+              exec(uploadCmd, (err, stdout, stderr) => {
+                if (err) {
+                  vscode.window.showErrorMessage(`Upload failed: ${stderr || err.message}`);
+                  reject(err);
+                } else {
+                  vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+                  this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+                  resolve();
+                }
+              });
+            })
+        );
+      }
+
+
+
+
+
       else if (message.command === 'deleteFile') {
         const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;
 
@@ -516,6 +557,7 @@ private getHtml(): string {
 
       <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
       <button id="uploadAsIsBtn">Upload Active Python File</button>
+      <button id="uploadFromPcBtn">Upload Python File from PC</button>
 
       <div class="buttons-row">
         <button id="listFilesBtn">List Files</button>
@@ -664,6 +706,13 @@ private getHtml(): string {
           if (!filename) return alert('No file selected to run.');
           vscode.postMessage({ command: 'runPythonFile', port, filename });
         });
+
+        document.getElementById('uploadFromPcBtn').addEventListener('click', () => {
+          const port = document.getElementById('port').value;
+          if (!port) return alert('Please select the COM Port before uploading.');
+          vscode.postMessage({ command: 'uploadPythonFromPc', port });
+        });
+
 
 
 

@@ -336,6 +336,37 @@ class EspFlasherViewProvider {
                         ports: ports.map(p => p.path),
                     });
                 }
+                else if (message.command === 'uploadPythonFromPc') {
+                    const fileUri = yield vscode.window.showOpenDialog({
+                        filters: { 'Python Files': ['py'] },
+                        canSelectMany: false,
+                    });
+                    if (!fileUri || fileUri.length === 0) {
+                        vscode.window.showErrorMessage('No file selected.');
+                        return;
+                    }
+                    const filePath = fileUri[0].fsPath;
+                    const fileName = path.basename(filePath);
+                    const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
+                    vscode.window.withProgress({
+                        location: vscode.ProgressLocation.Notification,
+                        title: `Uploading ${fileName} from PC...`,
+                        cancellable: false,
+                    }, () => new Promise((resolve, reject) => {
+                        (0, child_process_1.exec)(uploadCmd, (err, stdout, stderr) => {
+                            var _a;
+                            if (err) {
+                                vscode.window.showErrorMessage(`Upload failed: ${stderr || err.message}`);
+                                reject(err);
+                            }
+                            else {
+                                vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+                                (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+                                resolve();
+                            }
+                        });
+                    }));
+                }
                 else if (message.command === 'deleteFile') {
                     const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;
                     (0, child_process_1.exec)(delCmd, (err, stdout, stderr) => {
@@ -485,6 +516,7 @@ class EspFlasherViewProvider {
 
       <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
       <button id="uploadAsIsBtn">Upload Active Python File</button>
+      <button id="uploadFromPcBtn">Upload Python File from PC</button>
 
       <div class="buttons-row">
         <button id="listFilesBtn">List Files</button>
@@ -633,6 +665,13 @@ class EspFlasherViewProvider {
           if (!filename) return alert('No file selected to run.');
           vscode.postMessage({ command: 'runPythonFile', port, filename });
         });
+
+        document.getElementById('uploadFromPcBtn').addEventListener('click', () => {
+          const port = document.getElementById('port').value;
+          if (!port) return alert('Please select the COM Port before uploading.');
+          vscode.postMessage({ command: 'uploadPythonFromPc', port });
+        });
+
 
 
 
