@@ -183,12 +183,13 @@ class EspFlasherViewProvider {
                         filters: { 'BIN files': ['bin'] },
                         canSelectMany: false,
                     });
-                    if (!board || !fileUri) {
-                        vscode.window.showErrorMessage('Board and .bin file are required.');
+                    if (!fileUri) {
+                        vscode.window.showErrorMessage('No firmware file selected.');
                         return;
                     }
                     const firmwarePath = fileUri[0].fsPath;
-                    const cmd = `python -u -m esptool --port ${port} --chip ${board} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${firmwarePath}"`;
+                    // Remove '--chip' argument to make it generic
+                    const cmd = `python -u -m esptool --port ${message.port} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${firmwarePath}"`;
                     vscode.window.withProgress({
                         location: vscode.ProgressLocation.Notification,
                         title: 'Flashing firmware...',
@@ -347,135 +348,130 @@ class EspFlasherViewProvider {
     }
     getHtml() {
         return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <style>
-        body {
-          font-family: var(--vscode-font-family);
-          font-size: 13px;
-          padding: 12px;
-          background-color: var(--vscode-sideBar-background);
-          color: var(--vscode-foreground);
-        }
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: var(--vscode-font-family);
+      font-size: 13px;
+      padding: 12px;
+      background-color: var(--vscode-sideBar-background);
+      color: var(--vscode-foreground);
+    }
+    h4 {
+      font-size: 15px;
+      margin-bottom: 6px;
+      cursor: pointer;
+    }
+    .section {
+      margin-bottom: 24px;
+    }
+    .section-content {
+      margin-top: 8px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+    }
+    input, select {
+      width: 100%;
+      padding: 6px;
+      margin-bottom: 12px;
+      border-radius: 4px;
+      border: 1px solid var(--vscode-input-border);
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+    }
+    button {
+      display: block;
+      width: 100%;
+      padding: 10px 0;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      background-color: var(--vscode-button-background);
+      color: var(--vscode-button-foreground);
+      font-weight: bold;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: var(--vscode-button-hoverBackground);
+    }
+    .buttons-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .buttons-row button {
+      flex: 1;
+      margin-top: 0;
+    }
+    .toggleable > .section-content {
+      display: none;
+    }
+    .toggleable.open > .section-content {
+      display: block;
+    }
+  </style>
+</head>
+<body>
 
-        h3 {
-          margin-top: 0;
-          font-size: 16px;
-          color: var(--vscode-sideBarTitle-foreground);
-        }
+  <!-- COM Port Dropdown (Shared) -->
+  <label for="port">COM Port</label>
+  <select id="port"></select>
 
-        form, .section {
-          margin-bottom: 24px;
-        }
+  <!-- Flash Firmware Section -->
+  <div class="section toggleable" id="flashSection">
+    <h4 onclick="toggleSection('flashSection')">Flash Firmware</h4>
+    <div class="section-content">
 
-        label {
-          display: block;
-          margin-bottom: 6px;
-        }
+      <label for="firmwareQuery">Search Firmware (e.g. esp32, s3, rp2)</label>
+      <input type="text" id="firmwareQuery" placeholder="Type board name...">
 
-        input, select {
-          width: 100%;
-          padding: 6px;
-          margin-bottom: 12px;
-          border-radius: 4px;
-          border: 1px solid var(--vscode-input-border);
-          background-color: var(--vscode-input-background);
-          color: var(--vscode-input-foreground);
-        }
+      <label for="firmwareSelect">Top 5 Matches</label>
+      <select id="firmwareSelect" size="5"></select>
 
-        button {
-          display: block;
-          width: 100%;
-          padding: 10px 0;
-          margin-top: 10px;
-          margin-bottom: 10px;
-          background-color: var(--vscode-button-background);
-          color: var(--vscode-button-foreground);
-          font-weight: bold;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: background-color 0.2s ease-in-out;
-        }
-        
-        button:hover {
-          background-color: var(--vscode-button-hoverBackground);
-        }
+      <button id="flashFromWebBtn">Download + Flash from Web</button>
 
+      <button id="flashLocalBtn">Flash .bin File from PC</button>
 
-        hr {
-          margin: 24px 0;
-          border: none;
-          border-top: 1px solid var(--vscode-editorGroup-border);
-        }
+    </div>
+  </div>
 
-        .buttons-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 12px;
-        }
+  <!-- Upload & Manage Section -->
+  <div class="section toggleable" id="uploadSection">
+    <h4 onclick="toggleSection('uploadSection')">Upload & Manage Python Scripts</h4>
+    <div class="section-content">
 
-        .buttons-row button {
-          flex: 1;
-          margin-top: 0;
-        }
-      </style>
-    </head>
-    <body>
+      <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
+      <button id="uploadAsIsBtn">Upload Active Python File</button>
 
-      <hr />
-
-      <div class="section">
-        <h4>Upload & Manage Python Scripts</h4>
-
-        <label for="portDevice">COM Port</label>
-        <select id="portDevice"></select>
-
-        <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
-        <button id="uploadAsIsBtn">Upload Active Python File </button>
-
-        <div class="buttons-row">
-          <button id="listFilesBtn">List Files</button>
-          <button id="refreshBtn">Refresh Files</button>
-        </div>
-
-        <label for="fileSelect">Files on Device</label>
-        <select id="fileSelect" size="6" style="width: 100%;"></select>
-
-        <div class="buttons-row">
-          <button id="runFileBtn">Run Selected File</button>
-          <button id="deleteFileBtn">Delete Selected File</button>
-        </div>
+      <div class="buttons-row">
+        <button id="listFilesBtn">List Files</button>
+        <button id="refreshBtn">Refresh Files</button>
       </div>
 
-      <div class="section">
-        <h4>Flash Firmware</h4>
+      <label for="fileSelect">Files on Device</label>
+      <select id="fileSelect" size="6" style="width: 100%;"></select>
 
-        <label for="firmwareQuery">Search Firmware (e.g. esp32, s3, rp2)</label>
-        <input type="text" id="firmwareQuery" placeholder="Type board name...">
-        <button id="flashFromWebBtn">Download + Flash from Web</button>
-
-        <label for="firmwareSelect">Firmware Options</label>
-        <select id="firmwareSelect"></select>
-
-        <form id="firmwareForm">
-          <label for="port">COM Port</label>
-          <select id="port"></select>
-
-          <label for="board">Board</label>
-          <select id="board">
-            <option value="esp32">ESP32</option>
-            <option value="esp8266">ESP8266</option>
-          </select>
-
-          <button type="submit">Flash Firmware (.bin)</button>
-        </form>
+      <div class="buttons-row">
+        <button id="runFileBtn">Run Selected File</button>
+        <button id="deleteFileBtn">Delete Selected File</button>
       </div>
+    </div>
+  </div>
 
       <script>
         const vscode = acquireVsCodeApi();
+
+
+        function toggleSection(id) {
+          const section = document.getElementById(id);
+          section.classList.toggle("open");
+        }
 
         // === Init events ===
         window.addEventListener('load', () => {
@@ -525,17 +521,16 @@ class EspFlasherViewProvider {
           }
 
           if (message.command === 'populatePorts') {
-            ['port', 'portDevice'].forEach(id => {
-              const select = document.getElementById(id);
-              select.innerHTML = '';
-              message.ports.forEach(port => {
-                const option = document.createElement('option');
-                option.value = port;
-                option.textContent = port;
-                select.appendChild(option);
-              });
+            const select = document.getElementById('port');
+            select.innerHTML = '';
+            message.ports.forEach(port => {
+              const option = document.createElement('option');
+              option.value = port;
+              option.textContent = port;
+              select.appendChild(option);
             });
           }
+
 
           if (message.command === 'displayFiles') {
             const fileSelect = document.getElementById('fileSelect');
@@ -554,39 +549,38 @@ class EspFlasherViewProvider {
         });
 
         // === Upload / Flash / Run / Delete ===
-        document.getElementById('firmwareForm').addEventListener('submit', (e) => {
-          e.preventDefault();
+        document.getElementById('flashLocalBtn').addEventListener('click', () => {
           const port = document.getElementById('port').value;
-          const board = document.getElementById('board').value;
-          vscode.postMessage({ command: 'flashFirmware', port, board });
+          if (!port) return alert('Please select the COM Port before flashing.');
+          vscode.postMessage({ command: 'flashFirmware', port });
         });
 
         document.getElementById('uploadPythonBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           if (!port) return alert('Please select the COM Port before uploading.');
           vscode.postMessage({ command: 'uploadPython', port });
         });
 
         document.getElementById('uploadAsIsBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           if (!port) return alert('Please select the COM Port before uploading.');
           vscode.postMessage({ command: 'uploadPythonAsIs', port });
         });
 
         document.getElementById('listFilesBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           if (!port) return alert('Please select the COM Port before listing files.');
           vscode.postMessage({ command: 'listFiles', port });
         });
 
         document.getElementById('refreshBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           if (!port) return alert('Please select the COM Port before refreshing files.');
           vscode.postMessage({ command: 'listFiles', port });
         });
 
         document.getElementById('deleteFileBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           const filename = document.getElementById('fileSelect').value;
           if (!port) return alert('Please select the COM Port before deleting a file.');
           if (!filename) return alert('No file selected to delete.');
@@ -594,7 +588,7 @@ class EspFlasherViewProvider {
         });
 
         document.getElementById('runFileBtn').addEventListener('click', () => {
-          const port = document.getElementById('portDevice').value;
+          const port = document.getElementById('port').value;
           const filename = document.getElementById('fileSelect').value;
           if (!port) return alert('Please select the COM Port before running a file.');
           if (!filename) return alert('No file selected to run.');
