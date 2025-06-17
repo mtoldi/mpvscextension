@@ -329,7 +329,7 @@ class EspFlasherViewProvider {
                         }
                         // Try to extract the list from stdout
                         try {
-                            const match = stdout.match(/\[.*?\]/s); // Match something like: ['main.py', 'boot.py']
+                            const match = stdout.match(/\[[\s\S]*?\]/); // [\s\S] matches any character including newlines
                             const files = match ? JSON.parse(match[0].replace(/'/g, '"')) : [];
                             // Send file list to the frontend to display in the UI
                             (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({ command: 'displayFiles', files });
