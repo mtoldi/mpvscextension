@@ -1,28 +1,42 @@
+// VS Code API for interacting with the editor, showing messages, progress, etc.
 import * as vscode from 'vscode';
+
+// Allows executing terminal/CLI commands like `mpremote` and `esptool`
 import { exec } from 'child_process';
+
+// Used to list available serial ports for device connection
 import { SerialPort } from 'serialport';
 
-// flash from web novi dio
-
+// Node.js core modules for filesystem, paths, OS temp directory, HTTPS requests
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as https from 'https';
+
+// Cheerio is a fast, flexible jQuery-like HTML parser for scraping the Micropython firmware page
 import * as cheerio from 'cheerio';
+
+// Fuse.js provides fuzzy searching to find the best matching firmware options based on user input
 import Fuse from 'fuse.js';
 
+// Called when the extension is activated (e.g. when VS Code starts or the user opens the extension panel)
 export function activate(context: vscode.ExtensionContext) {
+  // Register the Webview View Provider which supplies the HTML UI and handles backend logic
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
-      'espFlasherWebview',
-      new EspFlasherViewProvider(context)
+      'espFlasherWebview',                   // This must match the ID used in `package.json`
+      new EspFlasherViewProvider(context)    // The class that provides the Webview functionality
     )
   );
 }
 
+// Called when the extension is deactivated (e.g. when VS Code shuts down or the extension is disabled)
+// You can clean up resources here if needed (nothing to clean up in this case)
 export function deactivate() {}
 
+
 class EspFlasherViewProvider implements vscode.WebviewViewProvider {
+
   private _view?: vscode.WebviewView;
 
   private outputChannel = vscode.window.createOutputChannel("ESP Output");
@@ -31,70 +45,113 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
   constructor(private readonly context: vscode.ExtensionContext) {
   }
 
-  // flash from web novi dio
+/**
+ * Downloads a firmware binary from the web and flashes it to the selected device.
+ * 
+ * @param firmwareUrl - The full URL to the .bin firmware file.
+ * @param port - The serial port where the board is connected (e.g., COM3, /dev/ttyUSB0).
+ */
 
 private async handleFlashFromWeb(firmwareUrl: string, port: string) {
+  // Create a temporary path where the firmware file will be downloaded
   const tmpPath = path.join(os.tmpdir(), path.basename(firmwareUrl));
+
+  // Download the .bin firmware file to the temporary path
   await this.downloadFile(firmwareUrl, tmpPath);
 
+  // Construct the esptool command to flash the firmware to the device
   const command = `python -u -m esptool --port ${port} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${tmpPath}"`;
 
+  // Log the command being executed to the extension's output channel
   this.outputChannel.appendLine(`📤 Executing: ${command}`);
 
+  // Show a progress notification in VS Code while flashing is in progress
   vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Flashing firmware...',
       cancellable: false,
     },
-    () => new Promise<void>((resolve, reject) => {
-      exec(command, (err, stdout, stderr) => {
-        this.outputChannel.appendLine('[stdout]');
-        this.outputChannel.appendLine(stdout);
-        if (stderr) {
-          this.outputChannel.appendLine('[stderr]');
-          this.outputChannel.appendLine(stderr);
-        }
+    () =>
+      new Promise<void>((resolve, reject) => {
+        // Execute the flashing command
+        exec(command, (err, stdout, stderr) => {
+          // Log stdout and stderr to output channel
+          this.outputChannel.appendLine('[stdout]');
+          this.outputChannel.appendLine(stdout);
+          if (stderr) {
+            this.outputChannel.appendLine('[stderr]');
+            this.outputChannel.appendLine(stderr);
+          }
 
-        if (err) {
-          vscode.window.showErrorMessage(`Flash failed: ${stderr || err.message}`);
-          reject(err);
-        } else {
-          vscode.window.showInformationMessage('Flash successful!');
-          resolve();
-          this._view?.webview.postMessage({ command: 'triggerListFiles', port });
-        }
-      });
-    })
+          // Show success or error message to the user
+          if (err) {
+            vscode.window.showErrorMessage(`Flash failed: ${stderr || err.message}`);
+            reject(err);
+          } else {
+            vscode.window.showInformationMessage('Flash successful!');
+            resolve();
+
+            // Ask frontend to re-list files (in case the new firmware changes them)
+            this._view?.webview.postMessage({ command: 'triggerListFiles', port });
+          }
+        });
+      })
   );
 }
 
-
+/**
+ * Fetches a list of available MicroPython firmware binaries (.bin files)
+ * from the official micropython.org firmware download page for supported boards.
+ *
+ * Currently limited to 'ESP32_GENERIC' slug but can be extended easily.
+ * 
+ * @returns A Promise that resolves to an array of firmware file names and their download URLs.
+ */
 private async fetchFirmwareList(): Promise<{ name: string, url: string }[]> {
   const baseUrl = 'https://micropython.org';
+
+  // List of board slugs to search firmware for. This can be extended for more boards.
   const boardSlugs = [
     'ESP32_GENERIC',
   ];
 
   const allBinaries: { name: string, url: string }[] = [];
 
+  // Fetch and parse firmware listings for each board
   const fetchPromises = boardSlugs.map(slug => {
     return new Promise<void>((resolve) => {
       const fullUrl = `${baseUrl}/download/${slug}/`;
+
+      // Log which URL is being scanned
       this.outputChannel.appendLine(`🔍 Scanning: ${fullUrl}`);
 
+      // Perform HTTPS GET request to fetch HTML content of the firmware listing page
       https.get(fullUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, res => {
         let data = '';
+
+        // Accumulate response data chunks
         res.on('data', chunk => data += chunk);
+
+        // Once the whole page is loaded
         res.on('end', () => {
-          const $ = cheerio.load(data);
+          const $ = cheerio.load(data);  // Use Cheerio to parse HTML
           let count = 0;
 
+          // Find all <a> tags on the page and extract firmware links
           $('a').each((_, el) => {
             const href = $(el).attr('href');
+
+            // We're only interested in .bin firmware files from the /resources/firmware/ path
             if (href && href.endsWith('.bin') && href.includes('/resources/firmware/')) {
+              // Resolve relative URL to full URL
               const binUrl = href.startsWith('http') ? href : `${baseUrl}${href}`;
-              allBinaries.push({ name: path.basename(binUrl), url: binUrl });
+
+              allBinaries.push({
+                name: path.basename(binUrl), // Extract just the file name
+                url: binUrl
+              });
+
               count++;
             }
           });
@@ -103,737 +160,465 @@ private async fetchFirmwareList(): Promise<{ name: string, url: string }[]> {
           resolve();
         });
       }).on('error', err => {
+        // Handle request failure gracefully and log it
         this.outputChannel.appendLine(`⚠️ Failed to fetch ${fullUrl}: ${err.message}`);
         resolve();
       });
     });
   });
 
+  // Wait for all fetch operations to complete
   await Promise.all(fetchPromises);
+
   this.outputChannel.appendLine(`📦 Total firmware binaries found: ${allBinaries.length}`);
   return allBinaries;
 }
 
-
+/**
+ * Downloads a file from a given HTTPS URL and saves it to a local destination.
+ * Used to fetch firmware binaries before flashing.
+ *
+ * @param url - The URL of the file to download
+ * @param dest - The local path to save the downloaded file
+ * @returns A Promise that resolves when the file has been successfully downloaded
+ */
 private async downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
+    // Create a writable stream to the destination file
     const file = fs.createWriteStream(dest);
+
+    // Start downloading the file via HTTPS
     https.get(url, response => {
+      // Pipe the incoming data directly into the file stream
       response.pipe(file);
+
+      // Once the file stream finishes writing
       file.on('finish', () => {
-  file.close((err) => {
-    if (err) {
-      reject(err);
-    } else {
-      resolve();
-    }
-  });
-});
+        // Close the stream to ensure all data is flushed
+        file.close((err) => {
+          if (err) {
+            reject(err);  // Reject if there was an error closing the file
+          } else {
+            resolve();    // Success!
+          }
+        });
+      });
 
     }).on('error', err => {
+      // On download error, delete the partially written file (if any) and reject
       fs.unlink(dest, () => reject(err));
     });
   });
 }
 
-  async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
-    this._view = webviewView;
 
-    webviewView.webview.options = {
-      enableScripts: true,
-    };
+/**
+ * Called when the Webview view is resolved and ready to be displayed.
+ * This is where we set up the Webview HTML, send initial data, and hook up message listeners.
+ */
+async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+  // Store the view reference so we can post messages to it later
+  this._view = webviewView;
 
-    webviewView.webview.html = this.getHtml();
+  // Enable JavaScript execution in the Webview
+  webviewView.webview.options = {
+    enableScripts: true,
+  };
 
-    // Send available COM ports to frontend
-    const ports = await SerialPort.list();
+  // Load and assign the Webview HTML content
+  webviewView.webview.html = this.getHtml();
+
+  // Get a list of available serial ports (e.g. COM3, /dev/ttyUSB0)
+  const ports = await SerialPort.list();
+
+  // Send the available port list to the frontend dropdown
+  webviewView.webview.postMessage({
+    command: 'populatePorts',
+    ports: ports.map(p => p.path),
+  });
+
+  // If ports are available, automatically list files on the first port
+  if (ports.length > 0) {
     webviewView.webview.postMessage({
-      command: 'populatePorts',
-      ports: ports.map(p => p.path),
-    });
-
-    // ✅ Automatically trigger file listing for the first available port
-    if (ports.length > 0) {
-      webviewView.webview.postMessage({
-        command: 'triggerListFiles',
-        port: ports[0].path,
-      });
-    }
-
-    webviewView.webview.onDidReceiveMessage(async (message) => {
-      const { port, board } = message;
-
-      if (!port && message.command !== 'flashFirmware') {
-        vscode.window.showErrorMessage('COM port is required.');
-        return;
-      }
-
-      if (message.command === 'flashFirmware') {
-        const fileUri = await vscode.window.showOpenDialog({
-          filters: { 'BIN files': ['bin'] },
-          canSelectMany: false,
-        });
-      
-        if (!fileUri) {
-          vscode.window.showErrorMessage('No firmware file selected.');
-          return;
-        }
-      
-        const firmwarePath = fileUri[0].fsPath;
-      
-        // Remove '--chip' argument to make it generic
-        const cmd = `python -u -m esptool --port ${message.port} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${firmwarePath}"`;
-
-
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Flashing firmware...',
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(cmd, (error, stdout, stderr) => {
-                console.log('Command:', cmd);
-                console.log('STDOUT:', stdout);
-                console.log('STDERR:', stderr);
-
-                if (error) {
-                  vscode.window.showErrorMessage(`Firmware flashing failed: ${stderr || error.message}`);
-                  reject(error);
-                } else {
-                  vscode.window.showInformationMessage('Firmware flashed successfully!');
-                  resolve();
-                }
-              });
-            })
-        );
-      } 
-      else if (message.command === 'uploadPython') {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor || activeEditor.document.languageId !== 'python') {
-          vscode.window.showErrorMessage('No active Python file to upload.');
-          return;
-        }
-
-        const filePath = activeEditor.document.fileName;
-        const uploadCmd = `mpremote connect ${port} fs cp "${filePath}" :main.py`;
-
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: 'Uploading Python file as main.py...',
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
-                if (uploadError) {
-                  vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
-                  reject(uploadError);
-                  return;
-                }
-
-                vscode.window.showInformationMessage('Python file uploaded successfully as main.py!');
-                resolve();
-                this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
-              });
-            })
-        );
-      } 
-      else if (message.command === 'listFiles') {
-        const listCmd = `mpremote connect ${port} exec "import os; print(os.listdir())"`;
-
-        exec(listCmd, (err, stdout, stderr) => {
-          if (err) {
-            vscode.window.showErrorMessage(`Failed to list files: ${stderr || err.message}`);
-            return;
-          }
-        
-          // Clean up output to parse list
-          try {
-            const match = stdout.match(/\[.*?\]/s);
-            const files = match ? JSON.parse(match[0].replace(/'/g, '"')) : [];
-            this._view?.webview.postMessage({ command: 'displayFiles', files });
-          } catch (e) {
-            vscode.window.showErrorMessage('Failed to parse file list.');
-          }
-        });
-      }
-
-      else if (message.command === 'getFirmwareOptions') {
-        const firmwareList = await this.fetchFirmwareList();
-        const fuse = new Fuse(firmwareList, { keys: ['name'], threshold: 0.4 });
-        const matches = fuse.search(message.board || '');
-      
-        const filtered = matches.slice(0, 15).map(m => m.item);
-        this._view?.webview.postMessage({ command: 'setFirmwareOptions', options: filtered });
-      }
-
-
-      else if (message.command === 'flashFromWeb') {
-        const { firmwareUrl, port } = message;
-      
-        if (!firmwareUrl || !port) {
-          vscode.window.showErrorMessage('Firmware URL and port are required for flashing.');
-          return;
-        }
-      
-        await this.handleFlashFromWeb(firmwareUrl, port);
-      }
-
-
-
-      else if (message.command === 'openFileFromDevice') {
-        const { port, filename } = message;
-        const tempDir = path.join(os.tmpdir(), 'esp-temp');
-        const localPath = path.join(tempDir, filename);
-      
-        try {
-          await fs.promises.mkdir(tempDir, { recursive: true });
-        
-          const cmd = `mpremote connect ${port} fs cp :"${filename}" "${localPath}"`;
-        
-          this.outputChannel.appendLine(`📥 Downloading ${filename} from device...`);
-          exec(cmd, async (err, stdout, stderr) => {
-            if (err) {
-              vscode.window.showErrorMessage(`Failed to download file: ${stderr || err.message}`);
-              return;
-            }
-          
-            const doc = await vscode.workspace.openTextDocument(localPath);
-            await vscode.window.showTextDocument(doc, { preview: false });
-            vscode.window.showInformationMessage(`Opened ${filename} from device.`);
-          });
-        
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          vscode.window.showErrorMessage(`Failed to prepare file for editing: ${message}`);
-        }
-
-      }
-
-
-
-
-      else if (message.command === 'uploadPythonAsIs') {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor || activeEditor.document.languageId !== 'python') {
-          vscode.window.showErrorMessage('No active Python file to upload.');
-          return;
-        }
-      
-        const filePath = activeEditor.document.fileName;
-        const fileName = filePath.split(/[/\\]/).pop(); // Extract filename only
-        const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
-      
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Uploading ${fileName} to device...`,
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
-                if (uploadError) {
-                  vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
-                  reject(uploadError);
-                  return;
-                }
-              
-                vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
-                resolve();
-                this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
-
-              });
-            })
-        );
-      }
-
-      else if (message.command === 'runPythonFile') {
-        const { filename } = message;
-
-        if (!filename) {
-          vscode.window.showErrorMessage('Filename is required to run the script.');
-          return;
-        }
-        
-        // Remove .py extension if present
-        const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
-
-        const runCmd = `mpremote connect ${port} exec "import ${moduleName}"`;
-
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Running ${filename}...`,
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(runCmd, (runError, runStdout, runStderr) => {
-                  // this.outputChannel.clear();
-                  this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
-                  this.outputChannel.appendLine(runStdout);
-                  if (runStderr) this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);
-                  this.outputChannel.show(true);
-
-
-                if (runError) {
-                  vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
-                  reject(runError);
-                } else {
-                  vscode.window.showInformationMessage(`${filename} ran successfully!`);
-                  resolve();
-                }
-              });
-            })
-        );
-      }
-
-      else if (message.command === 'getPorts') {
-        const ports = await SerialPort.list();
-        this._view?.webview.postMessage({
-          command: 'populatePorts',
-          ports: ports.map(p => p.path),
-        });
-      }
-
-      else if (message.command === 'uploadPythonFromPc') {
-        const fileUri = await vscode.window.showOpenDialog({
-          filters: { 'Python Files': ['py'] },
-          canSelectMany: false,
-        });
-      
-        if (!fileUri || fileUri.length === 0) {
-          vscode.window.showErrorMessage('No file selected.');
-          return;
-        }
-      
-        const filePath = fileUri[0].fsPath;
-        const fileName = path.basename(filePath);
-        const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
-      
-        vscode.window.withProgress(
-          {
-            location: vscode.ProgressLocation.Notification,
-            title: `Uploading ${fileName} from PC...`,
-            cancellable: false,
-          },
-          () =>
-            new Promise<void>((resolve, reject) => {
-              exec(uploadCmd, (err, stdout, stderr) => {
-                if (err) {
-                  vscode.window.showErrorMessage(`Upload failed: ${stderr || err.message}`);
-                  reject(err);
-                } else {
-                  vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
-                  this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
-                  resolve();
-                }
-              });
-            })
-        );
-      }
-
-
-
-
-
-      else if (message.command === 'deleteFile') {
-        const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;
-
-        exec(delCmd, (err, stdout, stderr) => {
-          if (err) {
-            vscode.window.showErrorMessage(`Failed to delete file: ${stderr || err.message}`);
-          } else {
-            vscode.window.showInformationMessage(`Deleted ${message.filename} successfully.`);
-            // Re-fetch file list
-            this._view?.webview.postMessage({ command: 'triggerListFiles', port });
-          }
-        });
-      }  
+      command: 'triggerListFiles',
+      port: ports[0].path,
     });
   }
 
-private getHtml(): string {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <style>
-    body {
-      font-family: var(--vscode-font-family);
-      font-size: 13px;
-      padding: 12px;
-      background-color: var(--vscode-sideBar-background);
-      color: var(--vscode-foreground);
-    }
-    h4 {
-      font-size: 15px;
-      margin-bottom: 6px;
-      cursor: pointer;
-    }
-    .section {
-      margin-bottom: 24px;
+  // Handle incoming messages from the Webview (frontend)
+  webviewView.webview.onDidReceiveMessage(async (message) => {
+    const { port, board } = message;
+
+    // For most commands, port is required (except for local .bin flash)
+    if (!port && message.command !== 'flashFirmware') {
+      vscode.window.showErrorMessage('COM port is required.');
+      return;
     }
 
-    label {
-      display: block;
-      margin-bottom: 6px;
+  // Handle flashing from a local .bin file selected by the user
+  if (message.command === 'flashFirmware') {
+    // Ask user to choose a .bin file from disk
+    const fileUri = await vscode.window.showOpenDialog({
+      filters: { 'BIN files': ['bin'] },
+      canSelectMany: false,
+    });
+  
+    if (!fileUri) {
+      vscode.window.showErrorMessage('No firmware file selected.');
+      return;
     }
-    input, select {
-      width: 100%;
-      padding: 6px;
-      margin-bottom: 12px;
-      border-radius: 4px;
-      border: 1px solid var(--vscode-input-border);
-      background-color: var(--vscode-input-background);
-      color: var(--vscode-input-foreground);
-    }
-    button {
-      display: block;
-      width: 100%;
-      padding: 10px 0;
-      margin-top: 10px;
-      margin-bottom: 10px;
-      background-color: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      font-weight: bold;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: var(--vscode-button-hoverBackground);
-    }
-    .buttons-row {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-    .buttons-row button {
-      flex: 1;
-      margin-top: 0;
-    }
-
-    .section-content {
-      overflow: hidden;
-      max-height: 0;
-      opacity: 0;
-      transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
-      margin-top: 0;
-    }
-
-    .toggleable.open > .section-content {
-      max-height: 1000px; /* Large enough to fit your content */
-      opacity: 1;
-      margin-top: 8px;
-    }
-
-
-    h4 {
-      font-size: 15px;
-      margin-bottom: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-    }
-
-    .arrow {
-      display: inline-block;
-      margin-right: 8px;
-      transition: transform 0.2s ease-in-out;
-    }
-
-    .toggleable.open .arrow {
-      transform: rotate(90deg);
-    }
-
-  </style>
-</head>
-<body>
-
-  <!-- COM Port Dropdown (Shared) -->
-  <label for="port">COM port Selection</label>
-  <select id="port"></select>
-
-  <!-- Flash Firmware Section -->
-  <div class="section toggleable" id="flashSection">
-    <h4 onclick="toggleSection('flashSection')">
-      <span class="arrow">▶</span> Install Micropython on your board
-    </h4>
-    <div class="section-content">
-
-      <label for="firmwareQuery">Search Firmware (e.g. esp32, s3, rp2)</label>
-      <input type="text" id="firmwareQuery" placeholder="Type board name...">
-
-      <label for="firmwareSelect">Top 5 Matches</label>
-      <select id="firmwareSelect" size="5"></select>
-
-      <button id="flashFromWebBtn">Download + Flash from Web</button>
-
-      <button id="flashLocalBtn">Flash .bin File from PC</button>
-
-    </div>
-  </div>
-
-  <!-- Upload & Manage Section -->
-  <div class="section toggleable" id="uploadSection">
-    <h4 onclick="toggleSection('uploadSection')">
-      <span class="arrow">▶</span> Upload & Manage Python Scripts
-    </h4>
-    <div class="section-content">
-
-      <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
-      <button id="uploadAsIsBtn">Upload Active Python File</button>
-      <button id="uploadFromPcBtn">Upload Python File from PC</button>
-
-      <div class="buttons-row">
-        <button id="listFilesBtn">List Files</button>
-        <button id="refreshBtn">Refresh Files</button>
-      </div>
-
-      <label for="fileSelect">Files on Device</label>
-      <select id="fileSelect" size="6" style="width: 100%;"></select>
-
-      <div class="buttons-row">
-        <button id="runFileBtn">Run Selected File</button>
-        <button id="deleteFileBtn">Delete Selected File</button>
-      </div>
-    </div>
-  </div>
-
-      <script>
-        const vscode = acquireVsCodeApi();
-
-
-        function toggleSection(id) {
-          const section = document.getElementById(id);
-          section.classList.toggle("open");
-        }
-
-        // === Init events ===
-        window.addEventListener('load', () => {
-          const board = document.getElementById('firmwareQuery').value;
-          const port = document.getElementById('port').value;
-          vscode.postMessage({ command: 'getFirmwareOptions', board, port });
-        });
-
-        document.getElementById('firmwareQuery').addEventListener('input', (e) => {
-          const board = e.target.value;
-          const port = document.getElementById('port').value;
-          vscode.postMessage({ command: 'getFirmwareOptions', board, port });
-        });
-
-        // === Flash from Web ===
-        document.getElementById('flashFromWebBtn').addEventListener('click', () => {
-          const firmwareUrl = document.getElementById('firmwareSelect').value;
-          const port = document.getElementById('port').value;
-
-          if (!firmwareUrl || !port) {
-            alert('Please select firmware and port before flashing.');
-            return;
-          }
-
-          vscode.postMessage({
-            command: 'flashFromWeb',
-            firmwareUrl,
-            port
+  
+    const firmwarePath = fileUri[0].fsPath;
+  
+    // Construct esptool.py command (no --chip arg for generic compatibility)
+    const cmd = `python -u -m esptool --port ${message.port} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${firmwarePath}"`;
+  
+    // Show progress notification during the flashing process
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Flashing firmware...',
+        cancellable: false,
+      },
+      () =>
+        new Promise<void>((resolve, reject) => {
+          // Run the flashing command
+          exec(cmd, (error, stdout, stderr) => {
+            console.log('Command:', cmd);
+            console.log('STDOUT:', stdout);
+            console.log('STDERR:', stderr);
+          
+            if (error) {
+              vscode.window.showErrorMessage(`Firmware flashing failed: ${stderr || error.message}`);
+              reject(error);
+            } else {
+              vscode.window.showInformationMessage('Firmware flashed successfully!');
+              resolve();
+            }
           });
-        });
+        })
+    );
+  }
 
+  // Handle uploading the currently active Python file as 'main.py' to the device
+  else if (message.command === 'uploadPython') {
+    const activeEditor = vscode.window.activeTextEditor;
 
-        // === Message listener ===
-        window.addEventListener('message', (event) => {
-          const message = event.data;
+    // Make sure there's a Python file open and active in the editor
+    if (!activeEditor || activeEditor.document.languageId !== 'python') {
+      vscode.window.showErrorMessage('No active Python file to upload.');
+      return;
+    }
 
-          if (message.command === 'setFirmwareOptions') {
-            const select = document.getElementById('firmwareSelect');
-            select.innerHTML = '';
-            message.options.forEach(opt => {
-              const option = document.createElement('option');
-              option.value = opt.url;
-              option.textContent = opt.name;
-              select.appendChild(option);
-            });
-          }
+    const filePath = activeEditor.document.fileName;
 
-          if (message.command === 'populatePorts') {
-            const select = document.getElementById('port');
-            select.innerHTML = '';
-            message.ports.forEach(port => {
-              const option = document.createElement('option');
-              option.value = port;
-              option.textContent = port;
-              select.appendChild(option);
-            });
-          }
+    // Upload the file to the device as 'main.py' using mpremote
+    const uploadCmd = `mpremote connect ${port} fs cp "${filePath}" :main.py`;
 
-
-          if (message.command === 'displayFiles') {
-            const fileSelect = document.getElementById('fileSelect');
-            fileSelect.innerHTML = '';
-            currentState.files = message.files;
-            message.files.forEach(file => {
-              const option = document.createElement('option');
-              option.value = file;
-              option.textContent = file;
-              fileSelect.appendChild(option);
-            });
-            saveState();
-          }
-
-
-          if (message.command === 'triggerListFiles') {
-            vscode.postMessage({ command: 'listFiles', port: message.port });
-          }
-        });
-
-        // === Upload / Flash / Run / Delete ===
-        document.getElementById('flashLocalBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before flashing.');
-          vscode.postMessage({ command: 'flashFirmware', port });
-        });
-
-        document.getElementById('uploadPythonBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before uploading.');
-          vscode.postMessage({ command: 'uploadPython', port });
-        });
-
-        document.getElementById('uploadAsIsBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before uploading.');
-          vscode.postMessage({ command: 'uploadPythonAsIs', port });
-        });
-
-        document.getElementById('listFilesBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before listing files.');
-          vscode.postMessage({ command: 'listFiles', port });
-        });
-
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before refreshing files.');
-          vscode.postMessage({ command: 'listFiles', port });
-        });
-
-        document.getElementById('deleteFileBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          const filename = document.getElementById('fileSelect').value;
-          if (!port) return alert('Please select the COM Port before deleting a file.');
-          if (!filename) return alert('No file selected to delete.');
-          vscode.postMessage({ command: 'deleteFile', port, filename });
-        });
-
-        document.getElementById('runFileBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          const filename = document.getElementById('fileSelect').value;
-          if (!port) return alert('Please select the COM Port before running a file.');
-          if (!filename) return alert('No file selected to run.');
-          vscode.postMessage({ command: 'runPythonFile', port, filename });
-        });
-
-        document.getElementById('fileSelect').addEventListener('dblclick', () => {
-          const port = document.getElementById('port').value;
-          const filename = document.getElementById('fileSelect').value;
-        
-          if (!port || !filename) {
-            alert('Please select a COM port and a file to open.');
-            return;
-          }
-        
-          vscode.postMessage({ command: 'openFileFromDevice', port, filename });
-        });
-
-
-        document.getElementById('uploadFromPcBtn').addEventListener('click', () => {
-          const port = document.getElementById('port').value;
-          if (!port) return alert('Please select the COM Port before uploading.');
-          vscode.postMessage({ command: 'uploadPythonFromPc', port });
-        });
-
-
-
-
-
-        let currentState = {
-          port: '',
-          firmwareQuery: '',
-          selectedFirmware: '',
-          files: []
-        };
-
-        function saveState() {
-          vscode.setState(currentState);
-        }
-
-        function restoreState() {
-          const state = vscode.getState();
-          if (state) {
-            currentState = state;
-
-            document.getElementById('port').value = currentState.port || '';
-            document.getElementById('firmwareQuery').value = currentState.firmwareQuery || '';
-
-            // Restore firmware select
-            if (currentState.selectedFirmware) {
-              const select = document.getElementById('firmwareSelect');
-              Array.from(select.options).forEach(opt => {
-                if (opt.value === currentState.selectedFirmware) opt.selected = true;
-              });
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: 'Uploading Python file as main.py...',
+        cancellable: false,
+      },
+      () =>
+        new Promise<void>((resolve, reject) => {
+          // Execute the upload command
+          exec(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
+            if (uploadError) {
+              vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
+              reject(uploadError);
+              return;
             }
 
-            // Re-populate file list
-            const fileSelect = document.getElementById('fileSelect');
-            fileSelect.innerHTML = '';
-            currentState.files.forEach(file => {
-              const option = document.createElement('option');
-              option.value = file;
-              option.textContent = file;
-              fileSelect.appendChild(option);
-            });
-          }
+            vscode.window.showInformationMessage('Python file uploaded successfully as main.py!');
+            resolve();
 
-          // Refresh COM ports anyway to be sure
-          vscode.postMessage({ command: 'getPorts' });
+            // Ask the Webview to refresh the list of files on the device
+            this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+          });
+        })
+    );
+  }
+
+  // Handle listing files stored on the device using mpremote + os.listdir()
+  else if (message.command === 'listFiles') {
+    // Python one-liner that prints all files in the current directory
+    const listCmd = `mpremote connect ${port} exec "import os; print(os.listdir())"`;
+
+    // Execute the command
+    exec(listCmd, (err, stdout, stderr) => {
+      if (err) {
+        vscode.window.showErrorMessage(`Failed to list files: ${stderr || err.message}`);
+        return;
+      }
+
+      // Try to extract the list from stdout
+      try {
+        const match = stdout.match(/\[.*?\]/s); // Match something like: ['main.py', 'boot.py']
+        const files = match ? JSON.parse(match[0].replace(/'/g, '"')) : [];
+
+        // Send file list to the frontend to display in the UI
+        this._view?.webview.postMessage({ command: 'displayFiles', files });
+      } catch (e) {
+        vscode.window.showErrorMessage('Failed to parse file list.');
+      }
+    });
+  }
+
+  // Handle firmware search based on user query (e.g. "esp32", "s3", etc.)
+  else if (message.command === 'getFirmwareOptions') {
+    // Fetch the full list of firmware binaries from micropython.org
+    const firmwareList = await this.fetchFirmwareList();
+
+    // Set up fuzzy search to match user input to firmware filenames
+    const fuse = new Fuse(firmwareList, {
+      keys: ['name'],         // Search based on firmware file name
+      threshold: 0.4          // Fuzziness sensitivity (lower = stricter match)
+    });
+
+    // Search using the board name entered in the frontend
+    const matches = fuse.search(message.board || '');
+
+    // Limit to top 15 matches to avoid flooding the UI
+    const filtered = matches.slice(0, 15).map(m => m.item);
+
+    // Send the filtered list back to the Webview to populate the dropdown
+    this._view?.webview.postMessage({
+      command: 'setFirmwareOptions',
+      options: filtered
+    });
+  }
+
+  // Handle flashing firmware directly from a URL selected in the Webview
+  else if (message.command === 'flashFromWeb') {
+    const { firmwareUrl, port } = message;
+
+    // Check that both URL and port were provided
+    if (!firmwareUrl || !port) {
+      vscode.window.showErrorMessage('Firmware URL and port are required for flashing.');
+      return;
+    }
+
+    // Download the firmware and flash it using esptool
+    await this.handleFlashFromWeb(firmwareUrl, port);
+  }
+
+  // Handle opening a file that exists on the device and showing it in the VS Code editor
+  else if (message.command === 'openFileFromDevice') {
+    const { port, filename } = message;
+
+    // Build a temporary local path to download the file into
+    const tempDir = path.join(os.tmpdir(), 'esp-temp');
+    const localPath = path.join(tempDir, filename);
+
+    try {
+      // Ensure the temp directory exists
+      await fs.promises.mkdir(tempDir, { recursive: true });
+
+      // Build the mpremote command to copy the file from the device
+      const cmd = `mpremote connect ${port} fs cp :"${filename}" "${localPath}"`;
+
+      this.outputChannel.appendLine(`📥 Downloading ${filename} from device...`);
+
+      // Run the command to copy the file from the device
+      exec(cmd, async (err, stdout, stderr) => {
+        if (err) {
+          vscode.window.showErrorMessage(`Failed to download file: ${stderr || err.message}`);
+          return;
         }
 
-        // When view becomes visible again
-        document.addEventListener('visibilitychange', () => {
-          if (document.visibilityState === 'visible') {
-            restoreState();
-          }
-        });
+        // Open the downloaded file in a new VS Code editor tab
+        const doc = await vscode.workspace.openTextDocument(localPath);
+        await vscode.window.showTextDocument(doc, { preview: false });
 
-        // Track changes for state
-        document.getElementById('port').addEventListener('change', e => {
-          currentState.port = e.target.value;
-          saveState();
-        });
+        vscode.window.showInformationMessage(`Opened ${filename} from device.`);
+      });
 
-        document.getElementById('firmwareQuery').addEventListener('input', e => {
-          currentState.firmwareQuery = e.target.value;
-          saveState();
-        });
+    } catch (err) {
+      // Handle errors from mkdir or anything before exec
+      const message = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(`Failed to prepare file for editing: ${message}`);
+    }
+  }
 
-        document.getElementById('firmwareSelect').addEventListener('change', e => {
-          currentState.selectedFirmware = e.target.value;
-          saveState();
-        });
+  // Handle uploading the currently active Python file as-is (preserves original filename)
+  else if (message.command === 'uploadPythonAsIs') {
+    const activeEditor = vscode.window.activeTextEditor;
 
+    // Ensure there's an active Python file
+    if (!activeEditor || activeEditor.document.languageId !== 'python') {
+      vscode.window.showErrorMessage('No active Python file to upload.');
+      return;
+    }
 
+    // Get full file path and extract just the filename
+    const filePath = activeEditor.document.fileName;
+    const fileName = filePath.split(/[/\\]/).pop(); // Cross-platform basename
 
+    // Build mpremote command to copy the file using its original name
+    const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
 
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Uploading ${fileName} to device...`,
+        cancellable: false,
+      },
+      () =>
+        new Promise<void>((resolve, reject) => {
+          exec(uploadCmd, (uploadError, uploadStdout, uploadStderr) => {
+            if (uploadError) {
+              vscode.window.showErrorMessage(`Upload failed: ${uploadStderr || uploadError.message}`);
+              reject(uploadError);
+              return;
+            }
 
-      </script>
-    </body>
-    </html>
-  `;
+            vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+            resolve();
+
+            // Refresh file list in Webview
+            this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+          });
+        })
+    );
+  }
+
+  // Handle running a selected Python file from the device
+  else if (message.command === 'runPythonFile') {
+    const { filename } = message;
+
+    // Ensure a filename was provided
+    if (!filename) {
+      vscode.window.showErrorMessage('Filename is required to run the script.');
+      return;
+    }
+
+    // Strip the .py extension if present to get the module name
+    const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
+
+    // Build the mpremote command to import the file on the device
+    const runCmd = `mpremote connect ${port} exec "import ${moduleName}"`;
+
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Running ${filename}...`,
+        cancellable: false,
+      },
+      () =>
+        new Promise<void>((resolve, reject) => {
+          // Execute the command to run the script
+          exec(runCmd, (runError, runStdout, runStderr) => {
+            // Output everything to the ESP Output channel
+            this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
+            this.outputChannel.appendLine(runStdout);
+            if (runStderr) this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);
+            this.outputChannel.show(true); // Bring the Output tab to front
+
+            if (runError) {
+              vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
+              reject(runError);
+            } else {
+              vscode.window.showInformationMessage(`${filename} ran successfully!`);
+              resolve();
+            }
+          });
+        })
+    );
+  }
+
+  // Handle request to get a fresh list of available COM ports
+  else if (message.command === 'getPorts') {
+    // Query available serial ports using serialport library
+    const ports = await SerialPort.list();
+
+    // Send the port list to the Webview so the dropdown can update
+    this._view?.webview.postMessage({
+      command: 'populatePorts',
+      ports: ports.map(p => p.path),
+    });
+  }
+
+  // Handle uploading a .py file from disk (not necessarily open in the editor)
+  else if (message.command === 'uploadPythonFromPc') {
+    // Ask the user to select a Python file from their file system
+    const fileUri = await vscode.window.showOpenDialog({
+      filters: { 'Python Files': ['py'] },
+      canSelectMany: false,
+    });
+  
+    // If user canceled or selected nothing
+    if (!fileUri || fileUri.length === 0) {
+      vscode.window.showErrorMessage('No file selected.');
+      return;
+    }
+  
+    // Extract path and filename
+    const filePath = fileUri[0].fsPath;
+    const fileName = path.basename(filePath);
+  
+    // Build command to upload selected file using mpremote
+    const uploadCmd = `mpremote connect ${message.port} fs cp "${filePath}" :"${fileName}"`;
+  
+    vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Uploading ${fileName} from PC...`,
+        cancellable: false,
+      },
+      () =>
+        new Promise<void>((resolve, reject) => {
+          // Execute the upload
+          exec(uploadCmd, (err, stdout, stderr) => {
+            if (err) {
+              vscode.window.showErrorMessage(`Upload failed: ${stderr || err.message}`);
+              reject(err);
+            } else {
+              vscode.window.showInformationMessage(`${fileName} uploaded successfully!`);
+              resolve();
+            
+              // Refresh file list after upload
+              this._view?.webview.postMessage({ command: 'triggerListFiles', port: message.port });
+            }
+          });
+        })
+    );
+  }
+
+  // Handle deleting a file from the device using os.remove()
+  else if (message.command === 'deleteFile') {
+    // Build the Python command to delete the file on the device
+    const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;  
+
+    // Execute the delete command
+    exec(delCmd, (err, stdout, stderr) => {
+      if (err) {
+        // If something went wrong, show an error message
+        vscode.window.showErrorMessage(`Failed to delete file: ${stderr || err.message}`);
+      } else {
+        // Confirm success to the user
+        vscode.window.showInformationMessage(`Deleted ${message.filename} successfully.`);
+
+        // Refresh the file list on the frontend
+        this._view?.webview.postMessage({ command: 'triggerListFiles', port });
+      }
+    });
+  }
+
+});
 }
+
+// Loads the HTML content for the Webview panel from an external file
+private getHtml(): string {
+  // Construct an absolute path to the HTML file in the extension directory
+  const htmlPath = path.join(this.context.extensionPath, 'src', 'panel', 'index.html');
+
+  // Read the contents of the HTML file as a UTF-8 string
+  let html = fs.readFileSync(htmlPath, 'utf8');
+
+  // Return the raw HTML string to be used in the Webview
+  return html;
+}
+
 }
