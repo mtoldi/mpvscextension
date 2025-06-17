@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { SerialPort } from 'serialport';
 
-
 // flash from web novi dio
 
 import * as fs from 'fs';
@@ -34,11 +33,11 @@ class EspFlasherViewProvider implements vscode.WebviewViewProvider {
 
   // flash from web novi dio
 
-private async handleFlashFromWeb(firmwareUrl: string, port: string, chip: string) {
+private async handleFlashFromWeb(firmwareUrl: string, port: string) {
   const tmpPath = path.join(os.tmpdir(), path.basename(firmwareUrl));
   await this.downloadFile(firmwareUrl, tmpPath);
 
-  const command = `python -u -m esptool --port ${port} --chip ${chip} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${tmpPath}"`;
+  const command = `python -u -m esptool --port ${port} --baud 115200 write_flash --flash_mode keep --flash_size keep --erase-all 0x1000 "${tmpPath}"`;
 
   this.outputChannel.appendLine(`📤 Executing: ${command}`);
 
@@ -273,15 +272,16 @@ private async downloadFile(url: string, dest: string): Promise<void> {
 
 
       else if (message.command === 'flashFromWeb') {
-        const { firmwareUrl, port, chip } = message;
+        const { firmwareUrl, port } = message;
       
-        if (!firmwareUrl || !port || !chip) {
-          vscode.window.showErrorMessage('Firmware URL, port, and chip are required for flashing.');
+        if (!firmwareUrl || !port) {
+          vscode.window.showErrorMessage('Firmware URL and port are required for flashing.');
           return;
         }
       
-        await this.handleFlashFromWeb(firmwareUrl, port, chip);
+        await this.handleFlashFromWeb(firmwareUrl, port);
       }
+
 
 
       else if (message.command === 'uploadPythonAsIs') {
@@ -359,6 +359,15 @@ private async downloadFile(url: string, dest: string): Promise<void> {
             })
         );
       }
+
+      else if (message.command === 'getPorts') {
+        const ports = await SerialPort.list();
+        this._view?.webview.postMessage({
+          command: 'populatePorts',
+          ports: ports.map(p => p.path),
+        });
+      }
+
       else if (message.command === 'deleteFile') {
         const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;
 
@@ -444,7 +453,7 @@ private getHtml(): string {
       transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
       margin-top: 0;
     }
-    
+
     .toggleable.open > .section-content {
       max-height: 1000px; /* Large enough to fit your content */
       opacity: 1;
@@ -548,21 +557,20 @@ private getHtml(): string {
         // === Flash from Web ===
         document.getElementById('flashFromWebBtn').addEventListener('click', () => {
           const firmwareUrl = document.getElementById('firmwareSelect').value;
-          const chip = document.getElementById('board').value;
           const port = document.getElementById('port').value;
 
-          if (!firmwareUrl || !port || !chip) {
-            alert('Please select firmware, port, and board before flashing.');
+          if (!firmwareUrl || !port) {
+            alert('Please select firmware and port before flashing.');
             return;
           }
 
           vscode.postMessage({
             command: 'flashFromWeb',
             firmwareUrl,
-            port,
-            chip
+            port
           });
         });
+
 
         // === Message listener ===
         window.addEventListener('message', (event) => {
@@ -594,13 +602,16 @@ private getHtml(): string {
           if (message.command === 'displayFiles') {
             const fileSelect = document.getElementById('fileSelect');
             fileSelect.innerHTML = '';
+            currentState.files = message.files;
             message.files.forEach(file => {
               const option = document.createElement('option');
               option.value = file;
               option.textContent = file;
               fileSelect.appendChild(option);
             });
+            saveState();
           }
+
 
           if (message.command === 'triggerListFiles') {
             vscode.postMessage({ command: 'listFiles', port: message.port });
@@ -653,6 +664,78 @@ private getHtml(): string {
           if (!filename) return alert('No file selected to run.');
           vscode.postMessage({ command: 'runPythonFile', port, filename });
         });
+
+
+
+
+        let currentState = {
+          port: '',
+          firmwareQuery: '',
+          selectedFirmware: '',
+          files: []
+        };
+
+        function saveState() {
+          vscode.setState(currentState);
+        }
+
+        function restoreState() {
+          const state = vscode.getState();
+          if (state) {
+            currentState = state;
+
+            document.getElementById('port').value = currentState.port || '';
+            document.getElementById('firmwareQuery').value = currentState.firmwareQuery || '';
+
+            // Restore firmware select
+            if (currentState.selectedFirmware) {
+              const select = document.getElementById('firmwareSelect');
+              Array.from(select.options).forEach(opt => {
+                if (opt.value === currentState.selectedFirmware) opt.selected = true;
+              });
+            }
+
+            // Re-populate file list
+            const fileSelect = document.getElementById('fileSelect');
+            fileSelect.innerHTML = '';
+            currentState.files.forEach(file => {
+              const option = document.createElement('option');
+              option.value = file;
+              option.textContent = file;
+              fileSelect.appendChild(option);
+            });
+          }
+
+          // Refresh COM ports anyway to be sure
+          vscode.postMessage({ command: 'getPorts' });
+        }
+
+        // When view becomes visible again
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            restoreState();
+          }
+        });
+
+        // Track changes for state
+        document.getElementById('port').addEventListener('change', e => {
+          currentState.port = e.target.value;
+          saveState();
+        });
+
+        document.getElementById('firmwareQuery').addEventListener('input', e => {
+          currentState.firmwareQuery = e.target.value;
+          saveState();
+        });
+
+        document.getElementById('firmwareSelect').addEventListener('change', e => {
+          currentState.selectedFirmware = e.target.value;
+          saveState();
+        });
+
+
+
+
 
       </script>
     </body>
