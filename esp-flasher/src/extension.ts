@@ -397,9 +397,7 @@ private getHtml(): string {
     .section {
       margin-bottom: 24px;
     }
-    .section-content {
-      margin-top: 8px;
-    }
+
     label {
       display: block;
       margin-bottom: 6px;
@@ -438,12 +436,40 @@ private getHtml(): string {
       flex: 1;
       margin-top: 0;
     }
-    .toggleable > .section-content {
-      display: none;
+
+    .section-content {
+      overflow: hidden;
+      max-height: 0;
+      opacity: 0;
+      transition: max-height 0.3s ease, opacity 0.3s ease, margin-top 0.3s ease;
+      margin-top: 0;
     }
+    
     .toggleable.open > .section-content {
-      display: block;
+      max-height: 1000px; /* Large enough to fit your content */
+      opacity: 1;
+      margin-top: 8px;
     }
+
+
+    h4 {
+      font-size: 15px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+
+    .arrow {
+      display: inline-block;
+      margin-right: 8px;
+      transition: transform 0.2s ease-in-out;
+    }
+
+    .toggleable.open .arrow {
+      transform: rotate(90deg);
+    }
+
   </style>
 </head>
 <body>
@@ -454,7 +480,9 @@ private getHtml(): string {
 
   <!-- Flash Firmware Section -->
   <div class="section toggleable" id="flashSection">
-    <h4 onclick="toggleSection('flashSection')">Flash Firmware</h4>
+    <h4 onclick="toggleSection('flashSection')">
+      <span class="arrow">▶</span> Install Micropython on your board
+    </h4>
     <div class="section-content">
 
       <label for="firmwareQuery">Search Firmware (e.g. esp32, s3, rp2)</label>
@@ -472,7 +500,9 @@ private getHtml(): string {
 
   <!-- Upload & Manage Section -->
   <div class="section toggleable" id="uploadSection">
-    <h4 onclick="toggleSection('uploadSection')">Upload & Manage Python Scripts</h4>
+    <h4 onclick="toggleSection('uploadSection')">
+      <span class="arrow">▶</span> Upload & Manage Python Scripts
+    </h4>
     <div class="section-content">
 
       <button id="uploadPythonBtn">Upload Active Python File as main.py</button>
