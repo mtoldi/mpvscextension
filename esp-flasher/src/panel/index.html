@@ -180,6 +180,21 @@
   </div>
 </div>
 
+<!-- Download Soldered Module -->
+<div class="section toggleable" id="moduleSection">
+  <h4 onclick="toggleSection('moduleSection')">
+    <span class="arrow">▶</span> Install Soldered Module from GitHub
+  </h4>
+  <div class="section-content">
+    <label for="moduleName">Module Name (e.g. LTR507)</label>
+    <input type="text" id="moduleName" placeholder="Enter sensor name..." />
+
+    <button id="fetchModuleBtn">Download & Upload Module</button>
+  </div>
+</div>
+
+
+
 
 <script>
 
@@ -199,6 +214,24 @@ window.addEventListener('load', () => {
   const port = document.getElementById('port').value;
   vscode.postMessage({ command: 'getFirmwareOptions', board, port });
 });
+
+// soldered modules
+document.getElementById('fetchModuleBtn').addEventListener('click', () => {
+  const sensor = document.getElementById('moduleName').value.trim();
+  const port = document.getElementById('port').value;
+
+  if (!sensor || !port) {
+    alert('Please enter a module name and select a port.');
+    return;
+  }
+
+  vscode.postMessage({
+    command: 'fetchModule',
+    sensor,
+    port
+  });
+});
+
 
 // Update firmware options as the user types in the search input
 document.getElementById('firmwareQuery').addEventListener('input', (e) => {

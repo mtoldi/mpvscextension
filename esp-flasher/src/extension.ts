@@ -34,6 +34,22 @@ export function activate(context: vscode.ExtensionContext) {
 // You can clean up resources here if needed (nothing to clean up in this case)
 export function deactivate() {}
 
+function execCommand(command: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    exec(command, (err, stdout, stderr) => {
+      if (stdout) console.log(stdout);
+      if (stderr) console.error(stderr);
+
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+
 
 class EspFlasherViewProvider implements vscode.WebviewViewProvider {
 
@@ -495,7 +511,11 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     }
 
     // Strip the .py extension if present to get the module name
-    const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
+    // const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
+    const moduleName = filename
+      .replace(/\.py$/, '')       // remove .py
+      .replace(/-/g, '_');        // replace dashes with underscores
+
 
     // Build the mpremote command to import the file on the device
     const runCmd = `mpremote connect ${port} exec "import ${moduleName}"`;
@@ -585,6 +605,62 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
         })
     );
   }
+
+  // Soldered Modules
+  else if (message.command === 'fetchModule') {
+    const { sensor, port } = message;
+    if (!sensor || !port) {
+      vscode.window.showErrorMessage('Module name and port are required.');
+      return;
+    }
+
+    const apiUrl = `https://api.github.com/repos/SolderedElectronics/Soldered-MicroPython-Modules/contents/Sensors/${sensor}`;
+
+    https.get(apiUrl, { headers: { 'User-Agent': 'vscode-extension' } }, res => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', async () => {
+        try {
+          const files = JSON.parse(data);
+          const pyFiles = files.filter((f: any) => f.name.endsWith('.py'));
+
+          if (pyFiles.length === 0) {
+            vscode.window.showWarningMessage(`No Python files found for module "${sensor}"`);
+            return;
+          }
+
+          for (const file of pyFiles) {
+            const originalName = file.name;                         // e.g. 'ltr507-lightAndProximity.py'
+            const cleanName = originalName.replace(/-/g, '_');      // e.g. 'ltr507_lightAndProximity.py'
+          
+            const tempPath = path.join(os.tmpdir(), cleanName);     // local renamed download path
+          
+            // Download the file (saving it with the clean name)
+            await this.downloadFile(file.download_url, tempPath);
+          
+            // Upload to device with the clean filename (underscores only)
+            const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${cleanName}"`;
+          
+            this.outputChannel.appendLine(`⬆ Uploading ${cleanName}`);
+            await execCommand(uploadCmd);
+          }
+          
+
+          vscode.window.showInformationMessage(`✅ ${pyFiles.length} files from ${sensor} uploaded to device.`);
+          this._view?.webview.postMessage({ command: 'triggerListFiles', port });
+
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to fetch or upload files for ${sensor}`);
+          this.outputChannel.appendLine(`❌ Error: ${err}`);
+        }
+      });
+    }).on('error', err => {
+      vscode.window.showErrorMessage(`Failed to access GitHub API: ${err.message}`);
+    });
+  }
+
+
+
 
   // Handle deleting a file from the device using os.remove()
   else if (message.command === 'deleteFile') {
