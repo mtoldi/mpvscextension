@@ -707,10 +707,6 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
   }
 
 
-
-
-
-
   // Handle deleting a file from the device using os.remove()
   else if (message.command === 'deleteFile') {
     // Build the Python command to delete the file on the device
