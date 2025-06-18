@@ -258,11 +258,13 @@ class EspFlasherViewProvider {
             }
             // Handle incoming messages from the Webview (frontend)
             webviewView.webview.onDidReceiveMessage((message) => __awaiter(this, void 0, void 0, function* () {
-                var _a, _b;
-                const { port, board } = message;
-                // For most commands, port is required (except for local .bin flash)
-                if (!port && message.command !== 'flashFirmware') {
-                    vscode.window.showErrorMessage('COM port is required.');
+                var _a, _b, _c;
+                const { port } = message;
+                // Skip this check for commands that don't need a port
+                const needsPort = !['flashFirmware', 'getPorts', 'searchModules'].includes(message.command);
+                if (needsPort && (!port || typeof port !== 'string' || port.trim() === '')) {
+                    // Avoid error spam during extension startup or when UI hasn't initialized
+                    this.outputChannel.appendLine(`⚠ Ignoring ${message.command} - no port provided yet.`);
                     return;
                 }
                 // Handle flashing from a local .bin file selected by the user
@@ -536,45 +538,84 @@ class EspFlasherViewProvider {
                 }
                 // Soldered Modules
                 else if (message.command === 'fetchModule') {
-                    const { sensor, port } = message;
+                    const { sensor, port, mode } = message;
                     if (!sensor || !port) {
                         vscode.window.showErrorMessage('Module name and port are required.');
                         return;
                     }
-                    const apiUrl = `https://api.github.com/repos/SolderedElectronics/Soldered-MicroPython-Modules/contents/Sensors/${sensor}`;
+                    const baseUrl = `https://api.github.com/repos/SolderedElectronics/Soldered-MicroPython-Modules/contents/Sensors/${sensor}/${sensor}`;
+                    const targets = [];
+                    if (mode === 'library' || mode === 'all')
+                        targets.push(baseUrl);
+                    if (mode === 'examples' || mode === 'all')
+                        targets.push(`${baseUrl}/Examples`);
+                    for (const url of targets) {
+                        yield new Promise((resolve) => {
+                            https.get(url, { headers: { 'User-Agent': 'vscode-extension' } }, res => {
+                                let data = '';
+                                res.on('data', chunk => data += chunk);
+                                res.on('end', () => __awaiter(this, void 0, void 0, function* () {
+                                    try {
+                                        const files = JSON.parse(data);
+                                        const pyFiles = files.filter((f) => f.name.endsWith('.py'));
+                                        if (pyFiles.length === 0) {
+                                            vscode.window.showWarningMessage(`No .py files found in ${url}`);
+                                            return resolve();
+                                        }
+                                        for (const file of pyFiles) {
+                                            const tempPath = path.join(os.tmpdir(), file.name);
+                                            yield this.downloadFile(file.download_url, tempPath);
+                                            const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${file.name}"`;
+                                            this.outputChannel.appendLine(`⬆ Uploading ${file.name}`);
+                                            yield execCommand(uploadCmd);
+                                        }
+                                        resolve();
+                                    }
+                                    catch (err) {
+                                        vscode.window.showErrorMessage(`Failed to process ${url}`);
+                                        this.outputChannel.appendLine(`❌ Error: ${err}`);
+                                        resolve();
+                                    }
+                                }));
+                            }).on('error', err => {
+                                vscode.window.showErrorMessage(`Failed to fetch ${url}: ${err.message}`);
+                                resolve();
+                            });
+                        });
+                    }
+                    vscode.window.showInformationMessage(`✅ Downloaded ${mode} files for "${sensor}"`);
+                    (_c = this._view) === null || _c === void 0 ? void 0 : _c.webview.postMessage({ command: 'triggerListFiles', port });
+                }
+                else if (message.command === 'searchModules') {
+                    const keyword = message.keyword || '';
+                    const apiUrl = `https://api.github.com/repos/SolderedElectronics/Soldered-MicroPython-Modules/contents/Sensors`;
                     https.get(apiUrl, { headers: { 'User-Agent': 'vscode-extension' } }, res => {
                         let data = '';
                         res.on('data', chunk => data += chunk);
-                        res.on('end', () => __awaiter(this, void 0, void 0, function* () {
+                        res.on('end', () => {
                             var _a;
                             try {
-                                const files = JSON.parse(data);
-                                const pyFiles = files.filter((f) => f.name.endsWith('.py'));
-                                if (pyFiles.length === 0) {
-                                    vscode.window.showWarningMessage(`No Python files found for module "${sensor}"`);
-                                    return;
-                                }
-                                for (const file of pyFiles) {
-                                    const originalName = file.name; // e.g. 'ltr507-lightAndProximity.py'
-                                    const cleanName = originalName.replace(/-/g, '_'); // e.g. 'ltr507_lightAndProximity.py'
-                                    const tempPath = path.join(os.tmpdir(), cleanName); // local renamed download path
-                                    // Download the file (saving it with the clean name)
-                                    yield this.downloadFile(file.download_url, tempPath);
-                                    // Upload to device with the clean filename (underscores only)
-                                    const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${cleanName}"`;
-                                    this.outputChannel.appendLine(`⬆ Uploading ${cleanName}`);
-                                    yield execCommand(uploadCmd);
-                                }
-                                vscode.window.showInformationMessage(`✅ ${pyFiles.length} files from ${sensor} uploaded to device.`);
-                                (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({ command: 'triggerListFiles', port });
+                                const folders = JSON.parse(data).filter((f) => f.type === 'dir').map((f) => f.name);
+                                const fuse = new fuse_js_1.default(folders, {
+                                    threshold: 0.4,
+                                    ignoreLocation: true,
+                                    isCaseSensitive: false,
+                                });
+                                const matches = fuse.search(keyword).slice(0, 15).map(m => m.item);
+                                console.log('Matching against folders:', folders);
+                                console.log('Search keyword:', keyword);
+                                console.log('Matched results:', matches);
+                                (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({
+                                    command: 'setModuleMatches',
+                                    matches
+                                });
                             }
                             catch (err) {
-                                vscode.window.showErrorMessage(`Failed to fetch or upload files for ${sensor}`);
-                                this.outputChannel.appendLine(`❌ Error: ${err}`);
+                                vscode.window.showErrorMessage('Failed to parse module list from GitHub.');
                             }
-                        }));
+                        });
                     }).on('error', err => {
-                        vscode.window.showErrorMessage(`Failed to access GitHub API: ${err.message}`);
+                        vscode.window.showErrorMessage(`GitHub API error: ${err.message}`);
                     });
                 }
                 // Handle deleting a file from the device using os.remove()
