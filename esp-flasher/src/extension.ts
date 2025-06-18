@@ -617,13 +617,13 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
       vscode.window.showErrorMessage('Module name and port are required.');
       return;
     }
-
+  
     const baseUrl = `https://api.github.com/repos/SolderedElectronics/Soldered-MicroPython-Modules/contents/Sensors/${sensor}/${sensor}`;
     const targets: string[] = [];
-
+  
     if (mode === 'library' || mode === 'all') targets.push(baseUrl);
     if (mode === 'examples' || mode === 'all') targets.push(`${baseUrl}/Examples`);
-
+  
     for (const url of targets) {
       await new Promise<void>((resolve) => {
         https.get(url, { headers: { 'User-Agent': 'vscode-extension' } }, res => {
@@ -633,21 +633,22 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
             try {
               const files = JSON.parse(data);
               const pyFiles = files.filter((f: any) => f.name.endsWith('.py'));
-
+            
               if (pyFiles.length === 0) {
                 vscode.window.showWarningMessage(`No .py files found in ${url}`);
                 return resolve();
               }
-
+            
               for (const file of pyFiles) {
-                const tempPath = path.join(os.tmpdir(), file.name);
+                const uploadName = file.name.replace(/-/g, '_'); // Normalize filename
+                const tempPath = path.join(os.tmpdir(), uploadName);
                 await this.downloadFile(file.download_url, tempPath);
-
-                const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${file.name}"`;
-                this.outputChannel.appendLine(`⬆ Uploading ${file.name}`);
+              
+                const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${uploadName}"`;
+                this.outputChannel.appendLine(`⬆ Uploading ${uploadName}`);
                 await execCommand(uploadCmd);
               }
-
+            
               resolve();
             } catch (err) {
               vscode.window.showErrorMessage(`Failed to process ${url}`);
@@ -661,10 +662,11 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
         });
       });
     }
-
+  
     vscode.window.showInformationMessage(`✅ Downloaded ${mode} files for "${sensor}"`);
     this._view?.webview.postMessage({ command: 'triggerListFiles', port });
   }
+
 
 
   else if (message.command === 'searchModules') {

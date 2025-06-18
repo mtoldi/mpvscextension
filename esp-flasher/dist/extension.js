@@ -563,10 +563,11 @@ class EspFlasherViewProvider {
                                             return resolve();
                                         }
                                         for (const file of pyFiles) {
-                                            const tempPath = path.join(os.tmpdir(), file.name);
+                                            const uploadName = file.name.replace(/-/g, '_'); // Normalize filename
+                                            const tempPath = path.join(os.tmpdir(), uploadName);
                                             yield this.downloadFile(file.download_url, tempPath);
-                                            const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${file.name}"`;
-                                            this.outputChannel.appendLine(`⬆ Uploading ${file.name}`);
+                                            const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :"${uploadName}"`;
+                                            this.outputChannel.appendLine(`⬆ Uploading ${uploadName}`);
                                             yield execCommand(uploadCmd);
                                         }
                                         resolve();
