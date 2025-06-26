@@ -385,6 +385,14 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
 
   // Handle uploading the currently active Python file as 'main.py' to the device
   else if (message.command === 'uploadPython') {
+
+    if (this.serialMonitor && this.serialMonitor.isOpen) {
+      this.outputChannel.appendLine(`🛑 Stopping serial monitor before proceeding...`);
+      this.serialMonitor.close();
+      this.serialMonitor = null;
+    }
+
+
     const activeEditor = vscode.window.activeTextEditor;
 
     // Make sure there's a Python file open and active in the editor
@@ -527,6 +535,14 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
 
   // Handle uploading the currently active Python file as-is (preserves original filename)
   else if (message.command === 'uploadPythonAsIs') {
+
+
+    if (this.serialMonitor && this.serialMonitor.isOpen) {
+      this.outputChannel.appendLine(`🛑 Stopping serial monitor before proceeding...`);
+      this.serialMonitor.close();
+      this.serialMonitor = null;
+    }
+
     const activeEditor = vscode.window.activeTextEditor;
 
     // Ensure there's an active Python file
@@ -568,6 +584,13 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
   }
 
 else if (message.command === 'runPythonFile') {
+
+  if (this.serialMonitor && this.serialMonitor.isOpen) {
+    this.outputChannel.appendLine(`🛑 Stopping serial monitor before proceeding...`);
+    this.serialMonitor.close();
+    this.serialMonitor = null;
+  }
+
   const { filename, port } = message;
 
   if (!filename || !port) {
@@ -651,6 +674,13 @@ else if (message.command === 'stopRunningCode') {
 
   // Handle uploading a .py file from disk (not necessarily open in the editor)
   else if (message.command === 'uploadPythonFromPc') {
+
+    if (this.serialMonitor && this.serialMonitor.isOpen) {
+      this.outputChannel.appendLine(`🛑 Stopping serial monitor before proceeding...`);
+      this.serialMonitor.close();
+      this.serialMonitor = null;
+    }
+
     // Ask the user to select a Python file from their file system
     const fileUri = await vscode.window.showOpenDialog({
       filters: { 'Python Files': ['py'] },
@@ -698,6 +728,13 @@ else if (message.command === 'stopRunningCode') {
   // Soldered Modules
   else if (message.command === 'fetchModule') {
     const { sensor, port, mode } = message;
+
+    if (this.serialMonitor && this.serialMonitor.isOpen) {
+      this.outputChannel.appendLine(`🛑 Stopping serial monitor before fetching module...`);
+      this.serialMonitor.close();
+      this.serialMonitor = null;
+    }
+
     if (!sensor || !port) {
       vscode.window.showErrorMessage('Module name and port are required.');
       return;
@@ -788,6 +825,13 @@ else if (message.command === 'stopRunningCode') {
 
   // Handle deleting a file from the device using os.remove()
   else if (message.command === 'deleteFile') {
+
+    if (this.serialMonitor && this.serialMonitor.isOpen) {
+      this.outputChannel.appendLine(`🛑 Stopping serial monitor before fetching module...`);
+      this.serialMonitor.close();
+      this.serialMonitor = null;
+    }
+
     // Build the Python command to delete the file on the device
     const delCmd = `mpremote connect ${port} exec "import os; os.remove('${message.filename}')"`;  
 
