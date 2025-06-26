@@ -27,7 +27,7 @@
         {
           "id": "espFlasherView",
           "title": "Soldered MicroPython Helper",
-          "icon": "resources/mp2.png"
+          "icon": "resources/mp.svg"
         }
       ]
     },
@@ -37,7 +37,7 @@
           "type": "webview",
           "id": "espFlasherWebview",
           "name": "",
-          "icon": "resources/mp.png"
+          "icon": "resources/mp.svg"
         }
       ]
     }

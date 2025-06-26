@@ -228,11 +228,74 @@ private async downloadFile(url: string, dest: string): Promise<void> {
 }
 
 
+
+
+// serial monitor part
+
+private serialMonitor: SerialPort | null = null;
+
+private startSerialMonitor(portPath: string) {
+  if (this.serialMonitor) {
+    this.serialMonitor.close();
+    this.serialMonitor = null;
+  }
+
+  this.outputChannel.appendLine(`🔌 Opening serial monitor on ${portPath}`);
+
+  this.serialMonitor = new SerialPort({
+    path: portPath,
+    baudRate: 115200, // prilagodi ako tvoj mikrokontroler koristi drugačije
+    autoOpen: true,
+  });
+
+  this.serialMonitor.on('data', (data: Buffer) => {
+    const text = data.toString('utf-8');
+    this.outputChannel.append(text); // no newline trimming!
+  });
+
+  this.serialMonitor.on('error', err => {
+    this.outputChannel.appendLine(`❌ Serial error: ${err.message}`);
+  });
+
+  this.serialMonitor.on('close', () => {
+    this.outputChannel.appendLine(`🔌 Serial monitor closed.`);
+  });
+}
+
+private stopSerialMonitorAndReset(portPath: string) {
+  if (this.serialMonitor && this.serialMonitor.isOpen) {
+    this.serialMonitor.close(err => {
+      if (err) {
+        this.outputChannel.appendLine(`❌ Error closing serial monitor: ${err.message}`);
+      } else {
+        this.outputChannel.appendLine(`🔌 Serial monitor closed.`);
+      }
+    });
+    this.serialMonitor = null;
+  }
+
+  // Optional: Reset device to stop running main.py
+  const resetCmd = `mpremote connect ${portPath} reset`;
+  exec(resetCmd, (err, stdout, stderr) => {
+    if (err) {
+      this.outputChannel.appendLine(`❌ Error resetting device: ${stderr || err.message}`);
+    } else {
+      this.outputChannel.appendLine(`🔁 Device reset successfully.`);
+    }
+  });
+}
+
+
+
+
+
+
 /**
  * Called when the Webview view is resolved and ready to be displayed.
  * This is where we set up the Webview HTML, send initial data, and hook up message listeners.
  */
 async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
+
   // Store the view reference so we can post messages to it later
   this._view = webviewView;
 
@@ -504,53 +567,67 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     );
   }
 
-  // Handle running a selected Python file from the device
-  else if (message.command === 'runPythonFile') {
-    const { filename } = message;
+else if (message.command === 'runPythonFile') {
+  const { filename, port } = message;
 
-    // Ensure a filename was provided
-    if (!filename) {
-      vscode.window.showErrorMessage('Filename is required to run the script.');
-      return;
-    }
-
-    // Strip the .py extension if present to get the module name
-    // const moduleName = filename.endsWith('.py') ? filename.slice(0, -3) : filename;
-    const moduleName = filename
-      .replace(/\.py$/, '')       // remove .py
-      .replace(/-/g, '_');        // replace dashes with underscores
-
-
-    // Build the mpremote command to import the file on the device
-    const runCmd = `mpremote connect ${port} exec "import ${moduleName}"`;
-
-    vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Running ${filename}...`,
-        cancellable: false,
-      },
-      () =>
-        new Promise<void>((resolve, reject) => {
-          // Execute the command to run the script
-          exec(runCmd, (runError, runStdout, runStderr) => {
-            // Output everything to the ESP Output channel
-            this.outputChannel.appendLine(`>>> Running ${filename} on ${port}\n`);
-            this.outputChannel.appendLine(runStdout);
-            if (runStderr) this.outputChannel.appendLine(`\n[stderr]\n${runStderr}`);
-            this.outputChannel.show(true); // Bring the Output tab to front
-
-            if (runError) {
-              vscode.window.showErrorMessage(`Running script failed: ${runStderr || runError.message}`);
-              reject(runError);
-            } else {
-              vscode.window.showInformationMessage(`${filename} ran successfully!`);
-              resolve();
-            }
-          });
-        })
-    );
+  if (!filename || !port) {
+    vscode.window.showErrorMessage('Filename and port are required to run the script.');
+    return;
   }
+
+  const tempPath = path.join(os.tmpdir(), filename);
+
+  // Prvo pronađi file na uređaju (ako je već tamo), pa ga skini
+  const downloadCmd = `mpremote connect ${port} fs cp :${filename} "${tempPath}"`;
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Running ${filename}...`,
+      cancellable: false,
+    },
+    async () => {
+      try {
+        this.outputChannel.appendLine(`⬇ Downloading ${filename} to temp...`);
+        await execCommand(downloadCmd);
+
+        // Preimenuj i pošalji kao main.py
+        const uploadCmd = `mpremote connect ${port} fs cp "${tempPath}" :main.py`;
+        this.outputChannel.appendLine(`⬆ Uploading as main.py...`);
+        await execCommand(uploadCmd);
+
+        const resetCmd = `mpremote connect ${port} reset`;
+        this.outputChannel.appendLine(`🔁 Resetting board...`);
+        await execCommand(resetCmd);
+
+        // Pauza da device "boot-a"
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Startaj serial monitor
+        this.outputChannel.appendLine(`📡 Opening serial monitor...`);
+        this.startSerialMonitor(port);
+
+        this.outputChannel.show(true);
+        vscode.window.showInformationMessage(`${filename} is now running from main.py`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Failed to run script: ${msg}`);
+        this.outputChannel.appendLine(`❌ Error: ${msg}`);
+      }
+    }
+  );
+}
+
+else if (message.command === 'stopRunningCode') {
+  const { port } = message;
+  if (!port) {
+    vscode.window.showErrorMessage('Port is required to stop running code.');
+    return;
+  }
+  this.stopSerialMonitorAndReset(port);
+}
+
+
 
   // Handle request to get a fresh list of available COM ports
   else if (message.command === 'getPorts') {
@@ -563,6 +640,14 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
       ports: ports.map(p => p.path),
     });
   }
+
+  // Serial Monitor
+  else if (message.command === 'startSerialMonitor') {
+    const { port } = message;
+    if (!port) return vscode.window.showErrorMessage('Please select a port.');
+    this.startSerialMonitor(port);
+  }
+
 
   // Handle uploading a .py file from disk (not necessarily open in the editor)
   else if (message.command === 'uploadPythonFromPc') {
@@ -726,14 +811,19 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
 
 // Loads the HTML content for the Webview panel from an external file
 private getHtml(): string {
-  // Construct an absolute path to the HTML file in the extension directory
   const htmlPath = path.join(this.context.extensionPath, 'src', 'panel', 'index.html');
-
-  // Read the contents of the HTML file as a UTF-8 string
   let html = fs.readFileSync(htmlPath, 'utf8');
 
-  // Return the raw HTML string to be used in the Webview
+  // Convert mp.png to a webview-safe URI
+  const mpIconUri = this._view?.webview.asWebviewUri(
+    vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'mp.svg')
+  );
+
+  // Inject the URI into HTML placeholder
+  html = html.replace('{{mpIconUri}}', mpIconUri?.toString() || '');
+
   return html;
 }
+
 
 }

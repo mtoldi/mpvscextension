@@ -101,10 +101,41 @@
     .toggleable.open .arrow {
       transform: rotate(90deg);
     }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--vscode-editorGroup-border);
+  padding-bottom: 10px;
+}
+
+.app-logo {
+  width: 32px;
+  height: 32px;
+  color: var(--vscode-foreground); /* Dynamically uses the current theme text color */
+  filter: invert(1);
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: bold;
+  margin: 0;
+  color: var(--vscode-foreground);
+}
+
   </style>
 </head>
 
 <body>
+
+<div class="app-header">
+  <img src="{{mpIconUri}}" alt="MP Icon" class="app-logo">
+  <h1 class="app-title">Soldered MicroPython Helper</h1>
+</div>
+
+
 
 <!-- COM Port Dropdown (Shared) -->
 <!-- Label and dropdown menu to let user pick a serial port for flashing/uploading -->
@@ -174,6 +205,8 @@
     <!-- Buttons for running or deleting the selected file from the list -->
     <div class="buttons-row">
       <button id="runFileBtn">Run Selected File</button>
+      <button id="serialMonitorBtn">Start Serial Monitor</button>
+      <button id="stopCodeBtn">Stop Code</button>
       <button id="deleteFileBtn">Delete Selected File</button>
     </div>
 
@@ -222,6 +255,22 @@ window.addEventListener('load', () => {
   const port = document.getElementById('port').value;
   vscode.postMessage({ command: 'getFirmwareOptions', board, port });
 });
+
+
+// Serial Monitor Button
+document.getElementById('serialMonitorBtn').addEventListener('click', () => {
+  const port = document.getElementById('port').value;
+  if (!port) return alert('Please select a COM port.');
+  vscode.postMessage({ command: 'startSerialMonitor', port });
+});
+
+document.getElementById('stopCodeBtn').addEventListener('click', () => {
+  const port = document.getElementById('port').value;
+  if (!port) return alert('Please select a COM port.');
+  vscode.postMessage({ command: 'stopRunningCode', port });
+});
+
+
 
 
 
