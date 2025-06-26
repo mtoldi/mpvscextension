@@ -287,6 +287,22 @@ private stopSerialMonitorAndReset(portPath: string) {
 
 
 
+private async refreshState() {
+  const ports = await SerialPort.list();
+
+  this._view?.webview.postMessage({
+    command: 'populatePorts',
+    ports: ports.map(p => p.path),
+  });
+
+  if (ports.length > 0) {
+    this._view?.webview.postMessage({
+      command: 'triggerListFiles',
+      port: ports[0].path,
+    });
+  }
+}
+
 
 
 
@@ -298,6 +314,14 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
 
   // Store the view reference so we can post messages to it later
   this._view = webviewView;
+
+
+  webviewView.onDidChangeVisibility(() => {
+    if (webviewView.visible) {
+      this.refreshState();  // funkcija koju ćemo napraviti
+    }
+  });
+
 
   // Enable JavaScript execution in the Webview
   webviewView.webview.options = {
@@ -382,6 +406,11 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
         })
     );
   }
+
+  else if (message.command === 'requestRefresh') {
+    await this.refreshState();
+  }
+
 
   // Handle uploading the currently active Python file as 'main.py' to the device
   else if (message.command === 'uploadPython') {

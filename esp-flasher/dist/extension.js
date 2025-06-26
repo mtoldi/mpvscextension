@@ -275,6 +275,22 @@ class EspFlasherViewProvider {
             }
         });
     }
+    refreshState() {
+        var _a, _b;
+        return __awaiter(this, void 0, void 0, function* () {
+            const ports = yield serialport_1.SerialPort.list();
+            (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({
+                command: 'populatePorts',
+                ports: ports.map(p => p.path),
+            });
+            if (ports.length > 0) {
+                (_b = this._view) === null || _b === void 0 ? void 0 : _b.webview.postMessage({
+                    command: 'triggerListFiles',
+                    port: ports[0].path,
+                });
+            }
+        });
+    }
     /**
      * Called when the Webview view is resolved and ready to be displayed.
      * This is where we set up the Webview HTML, send initial data, and hook up message listeners.
@@ -283,6 +299,11 @@ class EspFlasherViewProvider {
         return __awaiter(this, void 0, void 0, function* () {
             // Store the view reference so we can post messages to it later
             this._view = webviewView;
+            webviewView.onDidChangeVisibility(() => {
+                if (webviewView.visible) {
+                    this.refreshState(); // funkcija koju ćemo napraviti
+                }
+            });
             // Enable JavaScript execution in the Webview
             webviewView.webview.options = {
                 enableScripts: true,
@@ -349,6 +370,9 @@ class EspFlasherViewProvider {
                             }
                         });
                     }));
+                }
+                else if (message.command === 'requestRefresh') {
+                    yield this.refreshState();
                 }
                 // Handle uploading the currently active Python file as 'main.py' to the device
                 else if (message.command === 'uploadPython') {

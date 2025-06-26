@@ -283,6 +283,11 @@ window.addEventListener('load', () => {
   vscode.postMessage({ command: 'getFirmwareOptions', board, port });
 });
 
+window.addEventListener('focus', () => {
+  vscode.postMessage({ command: 'requestRefresh' });
+});
+
+
 
 // Serial Monitor Button
 document.getElementById('serialMonitorBtn').addEventListener('click', () => {
