@@ -368,8 +368,8 @@ class EspFlasherViewProvider {
                     });
                     // Search using the board name entered in the frontend
                     const matches = fuse.search(message.board || '');
-                    // Limit to top 15 matches to avoid flooding the UI
-                    const filtered = matches.slice(0, 15).map(m => m.item);
+                    // Limit to top 5 matches to avoid flooding the UI
+                    const filtered = matches.slice(0, 5).map(m => m.item);
                     // Send the filtered list back to the Webview to populate the dropdown
                     (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({
                         command: 'setFirmwareOptions',
@@ -603,9 +603,6 @@ class EspFlasherViewProvider {
                                     isCaseSensitive: false,
                                 });
                                 const matches = fuse.search(keyword).slice(0, 15).map(m => m.item);
-                                console.log('Matching against folders:', folders);
-                                console.log('Search keyword:', keyword);
-                                console.log('Matched results:', matches);
                                 (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage({
                                     command: 'setModuleMatches',
                                     matches

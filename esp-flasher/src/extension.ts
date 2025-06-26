@@ -400,8 +400,8 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
     // Search using the board name entered in the frontend
     const matches = fuse.search(message.board || '');
 
-    // Limit to top 15 matches to avoid flooding the UI
-    const filtered = matches.slice(0, 15).map(m => m.item);
+    // Limit to top 5 matches to avoid flooding the UI
+    const filtered = matches.slice(0, 5).map(m => m.item);
 
     // Send the filtered list back to the Webview to populate the dropdown
     this._view?.webview.postMessage({
@@ -685,13 +685,7 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
             isCaseSensitive: false,
           });
 
-
           const matches = fuse.search(keyword).slice(0, 15).map(m => m.item);
-
-          console.log('Matching against folders:', folders);
-          console.log('Search keyword:', keyword);
-          console.log('Matched results:', matches);
-
 
           this._view?.webview.postMessage({
             command: 'setModuleMatches',
