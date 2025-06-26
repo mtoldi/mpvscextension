@@ -421,7 +421,6 @@ async resolveWebviewView(webviewView: vscode.WebviewView): Promise<void> {
       this.serialMonitor = null;
     }
 
-
     const activeEditor = vscode.window.activeTextEditor;
 
     // Make sure there's a Python file open and active in the editor

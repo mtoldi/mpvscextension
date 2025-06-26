@@ -169,6 +169,8 @@
 <label for="port">COM port Selection</label>
 <select id="port"></select>
 
+
+
 <!-- Flash Firmware Section -->
 <!-- Collapsible UI section for flashing MicroPython firmware -->
 <div class="section toggleable" id="flashSection">
@@ -269,15 +271,40 @@
 // Gain access to the VS Code Webview API
 const vscode = acquireVsCodeApi();
 
+
+
+function saveToggleState() {
+  const state = {};
+  document.querySelectorAll('.toggleable').forEach(section => {
+    state[section.id] = section.classList.contains('open');
+  });
+  localStorage.setItem('toggleState', JSON.stringify(state));
+}
+
+function restoreToggleState() {
+  const state = JSON.parse(localStorage.getItem('toggleState') || '{}');
+  document.querySelectorAll('.toggleable').forEach(section => {
+    if (state[section.id]) {
+      section.classList.add('open');
+    } else {
+      section.classList.remove('open');
+    }
+  });
+}
+
+
 // Toggle visibility of a collapsible section by toggling the "open" class
 function toggleSection(id) {
   const section = document.getElementById(id);
   section.classList.toggle("open");
+  saveToggleState();
 }
+
 
 // === Init events ===
 window.addEventListener('load', () => {
   // When the webview is first loaded, fetch firmware options based on current input
+  restoreToggleState();
   const board = document.getElementById('firmwareQuery').value;
   const port = document.getElementById('port').value;
   vscode.postMessage({ command: 'getFirmwareOptions', board, port });
@@ -517,6 +544,7 @@ function restoreState() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     restoreState();
+    restoreToggleState();
   }
 });
 
@@ -589,6 +617,8 @@ window.addEventListener('message', event => {
     }
   }
 });
+
+
 
 
 
